@@ -1,0 +1,17 @@
+{
+  "name": "hindsight",
+  "version": "0.0.1",
+  "description": "Backtest mempool data to find cumulative profit of MEV opportunities.",
+  "main": "index.js",
+  "author": "zeroXbrock",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.3.3",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "@flashbots/matchmaker-ts": "^0.7.5",
+    "ethers": "^6.6.2"
+  }
+}
