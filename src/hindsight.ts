@@ -3,10 +3,36 @@ import { Wallet } from 'ethers'
 import Config from './config'
 import { EthProvider, EthProviderWs } from './provider'
 
-export default class Hindsight {
-    private matchmaker?: Matchmaker
-    private readonly authSigner: Wallet
-    private readonly provider: EthProvider | EthProviderWs
+export class Hindsight {
+    public readonly matchmaker: Matchmaker
+    public readonly authSigner: Wallet
+    public readonly provider: EthProvider | EthProviderWs
+
+    constructor(matchmaker: Matchmaker, authSigner: Wallet, provider: EthProvider | EthProviderWs) {
+        this.matchmaker = matchmaker
+        this.authSigner = authSigner
+        this.provider = provider
+    }
+
+    public async getMevShareHistory() {
+        if (!this.matchmaker) {
+            throw new Error('Matchmaker not initialized')
+        }
+        const eventInfo = await this.matchmaker.getEventHistoryInfo()
+        const latestBlock = await this.provider.getBlockNumber()
+
+        return {}
+    }
+
+    public destroy() {
+        return this.provider.destroy()
+    }
+}
+
+export default class HindsightFactory {
+    public matchmaker?: Matchmaker
+    public readonly authSigner: Wallet
+    public readonly provider: EthProvider | EthProviderWs
 
     /**
      * @constructor Create a new Hindsight instance, connect providers
@@ -23,20 +49,10 @@ export default class Hindsight {
     }
 
     /**
-     * @method init Connect to mev-share using authSigner and provider from constructor.
+     * @method init Connect to mev-share using authSigner and provider from constructor. Return a new Hindsight instance.
     */
     public async init(): Promise<Hindsight> {
         this.matchmaker = Matchmaker.fromNetwork(this.authSigner, await this.provider.getNetwork())
-        return this
-    }
-
-    public async getMevShareHistory() {
-        if (!this.matchmaker) {
-            throw new Error('Matchmaker not initialized')
-        }
-        const eventInfo = await this.matchmaker.getEventHistoryInfo()
-        const latestBlock = await this.provider.getBlockNumber()
-
-        return {}
+        return new Hindsight(this.matchmaker, this.authSigner, this.provider)
     }
 }
