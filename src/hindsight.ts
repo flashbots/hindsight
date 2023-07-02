@@ -1,4 +1,4 @@
-import Matchmaker from '@flashbots/matchmaker-ts'
+import Matchmaker, {EventHistoryEntry} from '@flashbots/matchmaker-ts'
 import { Wallet } from 'ethers'
 import Config from './config'
 import { EthProvider, EthProviderWs } from './provider'
@@ -20,8 +20,25 @@ export class Hindsight {
         }
         const eventInfo = await this.matchmaker.getEventHistoryInfo()
         const latestBlock = await this.provider.getBlockNumber()
+        console.log("latest block", latestBlock)
 
-        return {}
+        let done = false
+        let i = 0
+        let events: Array<EventHistoryEntry> = []
+        while (!done) {
+            const mevShareHistory = await this.matchmaker.getEventHistory({
+                blockStart: latestBlock - 256,
+                limit: eventInfo.maxLimit,
+                offset: i * eventInfo.maxLimit,
+            })
+            i++
+            if (mevShareHistory.length < eventInfo.maxLimit) {
+                done = true
+            }
+            events.push(...mevShareHistory)
+            console.log(`accumulated ${events.length} events`)
+        }
+        return events
     }
 
     public destroy() {

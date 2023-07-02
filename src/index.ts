@@ -4,7 +4,7 @@ async function main() {
     const hindsight = await new Hindsight().init()
     console.log('hindsight', hindsight)
     const mevShareHistory = await hindsight.getMevShareHistory()
-    console.log("mevShareHistory", mevShareHistory)
+    console.log("total events", mevShareHistory.length)
 }
 
 main().then(() => {
