@@ -1,8 +1,7 @@
 import Matchmaker from '@flashbots/matchmaker-ts'
 import { Wallet } from 'ethers'
-import { Env } from './env'
+import Config from './config'
 import { EthProvider, EthProviderWs } from './provider'
-import { getLatestMevShareTxs } from './lib/history'
 
 export default class Hindsight {
     private matchmaker?: Matchmaker
@@ -14,7 +13,7 @@ export default class Hindsight {
      */
     constructor() {
         console.log('hindsight')
-        const env = new Env()
+        const env = new Config()
         this.authSigner = new Wallet(env.AUTH_SIGNER_PRIVATE_KEY)
         if (env.RPC_URL_WS) {
             this.provider = new EthProviderWs()
@@ -35,6 +34,9 @@ export default class Hindsight {
         if (!this.matchmaker) {
             throw new Error('Matchmaker not initialized')
         }
-        return getLatestMevShareTxs(this.matchmaker)
+        const eventInfo = await this.matchmaker.getEventHistoryInfo()
+        const latestBlock = await this.provider.getBlockNumber()
+
+        return {}
     }
 }

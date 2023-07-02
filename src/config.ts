@@ -9,7 +9,7 @@ export interface Config {
     readonly AUTH_SIGNER_PRIVATE_KEY: string
 }
 
-export class Env implements Config {
+export default class EnvConfig implements Config {
     readonly RPC_URL_HTTP: string
     readonly RPC_URL_WS?: string | undefined
     readonly AUTH_SIGNER_PRIVATE_KEY: string
