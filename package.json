@@ -24,7 +24,7 @@
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "start": "yarn build && node build/index.js",
+    "start": "NODE_ENV=production yarn build && node build/index.js",
     "test": "mocha --require ts-node/register src/test/*.spec.ts"
   }
 }

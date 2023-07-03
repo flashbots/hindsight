@@ -1,5 +1,5 @@
 import Matchmaker, {EventHistoryEntry} from '@flashbots/matchmaker-ts'
-import { Wallet } from 'ethers'
+import { TransactionResponse, Wallet } from 'ethers'
 import Config from './config'
 import { EthProvider, EthProviderWs } from './provider'
 
@@ -7,6 +7,7 @@ export class Hindsight {
     public readonly matchmaker: Matchmaker
     public readonly authSigner: Wallet
     public readonly provider: EthProvider | EthProviderWs
+    private static NUM_BLOCKS = process.env.NODE_ENV === "production" ? 256 : 10
 
     constructor(matchmaker: Matchmaker, authSigner: Wallet, provider: EthProvider | EthProviderWs) {
         this.matchmaker = matchmaker
@@ -27,7 +28,7 @@ export class Hindsight {
         let events: Array<EventHistoryEntry> = []
         while (!done) {
             const mevShareHistory = await this.matchmaker.getEventHistory({
-                blockStart: latestBlock - 256,
+                blockStart: latestBlock - Hindsight.NUM_BLOCKS,
                 limit: eventInfo.maxLimit,
                 offset: i * eventInfo.maxLimit,
             })
@@ -40,6 +41,38 @@ export class Hindsight {
         }
 
         return events
+    }
+
+    public async filterEvents(events: Array<EventHistoryEntry>, targetTopics: Array<string>) {
+        const eventHashMap = new Map<string, number>()
+        for (const topic of targetTopics) {
+            eventHashMap.set(topic, 0)
+        }
+        let eligibleEvents = []
+        for (const event of events) {
+            for (const log of event.hint.logs || []) {
+                // track incidence of all log topics for inspiration
+                eventHashMap.set(log.topics[0], (eventHashMap.get(log.topics[0]) || 0) + 1)
+                if (targetTopics.includes(log.topics[0])) {
+                    eligibleEvents.push(event)
+                }
+            }
+        }
+        console.log(eventHashMap.entries())
+        return eligibleEvents
+    }
+
+    public async filterTxs(events: Array<EventHistoryEntry>) {
+        let eligibleTxs: TransactionResponse[] = []
+        for (const event of events) {
+            try {
+                const tx = await this.provider.getTransaction(event.hint.hash)
+                if (tx) eligibleTxs.push(tx)
+            } catch (e) {
+                console.log(`error getting transaction from hash: ${event.hint.hash}`, e)
+            }
+        }
+        return eligibleTxs
     }
 
     public destroy() {
