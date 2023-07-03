@@ -62,7 +62,7 @@ export class Hindsight {
         return eligibleEvents
     }
 
-    public async filterTxs(events: Array<EventHistoryEntry>) {
+    public async fetchTxs(events: Array<EventHistoryEntry>) {
         let eligibleTxs: TransactionResponse[] = []
         for (const event of events) {
             try {

@@ -63,7 +63,7 @@ async function main() {
         eligibleEvents = await hindsight.filterEvents(events, uniswapTopics)
 
         // get raw txs of eligible events
-        eligibleTxs = await hindsight.filterTxs(eligibleEvents)
+        eligibleTxs = await hindsight.fetchTxs(eligibleEvents)
     }
 
     // ... doing stuff with the transactions ...
