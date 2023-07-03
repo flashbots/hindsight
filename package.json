@@ -7,6 +7,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/chai": "^4.3.5",
+    "@types/json-bigint": "^1.0.1",
     "@types/mocha": "^10.0.1",
     "@types/node": "^20.3.3",
     "chai": "^4.3.7",
@@ -17,7 +18,8 @@
   "dependencies": {
     "@flashbots/matchmaker-ts": "../matchmaker-ts/",
     "dotenv": "^16.3.1",
-    "ethers": "^6.6.2"
+    "ethers": "^6.6.2",
+    "json-bigint": "^1.0.0"
   },
   "scripts": {
     "dev": "ts-node src/index.ts",

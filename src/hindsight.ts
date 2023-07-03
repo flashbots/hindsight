@@ -38,6 +38,7 @@ export class Hindsight {
             events.push(...mevShareHistory)
             console.log(`accumulated ${events.length} events`)
         }
+
         return events
     }
 
