@@ -2,6 +2,10 @@ use anyhow::Result;
 use serde::Deserialize;
 use tokio::fs;
 
+//*******************************************//
+// TODO: replace serde types w/ mev-share-rs //
+//*******************************************//
+
 #[derive(Deserialize, Debug)]
 pub struct MevShareTx {
     pub to: Option<ethers::types::Address>,
@@ -35,7 +39,14 @@ pub struct CachedData {
 }
 
 pub async fn read_data(filename: Option<String>) -> Result<CachedData> {
-    let filename = filename.unwrap_or("cache.json".to_string());
+    let filename = filename.unwrap_or("events.json".to_string());
     let raw_data = fs::read_to_string(filename).await?;
     Ok(serde_json::from_str(&raw_data)?)
+}
+
+pub async fn write_tx_data(filename: Option<String>, data: String) -> Result<()> {
+    let filename = filename.unwrap_or("txs.json".to_string());
+    // open file for writing, then write the data to the file
+    fs::write(filename, data).await?;
+    Ok(())
 }

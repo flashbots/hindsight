@@ -9,6 +9,7 @@ version = "0.1.0"
 anyhow = "1.0.71"
 dotenvy = "0.15.7"
 ethers = "2.0.7"
+futures = "0.3.28"
 rusty-sando = {path = "./rusty-sando/bot"}
 serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
