@@ -16,9 +16,6 @@ export class Hindsight {
     }
 
     public async getMevShareHistory() {
-        if (!this.matchmaker) {
-            throw new Error('Matchmaker not initialized')
-        }
         const eventInfo = await this.matchmaker.getEventHistoryInfo()
         const latestBlock = await this.provider.getBlockNumber()
         console.log("latest block", latestBlock)
@@ -26,6 +23,7 @@ export class Hindsight {
         let done = false
         let i = 0
         let events: Array<EventHistoryEntry> = []
+        console.log(`fetching events from last ${Hindsight.NUM_BLOCKS} blocks`)
         while (!done) {
             const mevShareHistory = await this.matchmaker.getEventHistory({
                 blockStart: latestBlock - Hindsight.NUM_BLOCKS,
