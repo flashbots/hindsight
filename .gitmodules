@@ -1,3 +1,6 @@
 [submodule "simulator/rusty-sando"]
 	path = simulator/rusty-sando
 	url = https://github.com/mouseless-eth/rusty-sando.git
+[submodule "simulator/mev-share-rs"]
+	path = simulator/mev-share-rs
+	url = https://github.com/mattsse/mev-share-rs.git

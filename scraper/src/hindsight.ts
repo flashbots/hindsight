@@ -1,7 +1,40 @@
 import Matchmaker, {EventHistoryEntry} from '@flashbots/matchmaker-ts'
-import { TransactionResponse, Wallet } from 'ethers'
+import { TransactionResponseParams, Wallet } from 'ethers'
 import Config from './config'
 import { EthProvider, EthProviderWs } from './provider'
+
+/*
+gasLimit
+gasPrice
+maxPriorityFeePerGas
+maxFeePerGas
+value
+chainId
+*/
+export interface TransactionResponseParamsSerialized extends 
+    Omit<
+    Omit<
+    Omit<
+    Omit<
+    Omit<
+    Omit<
+    Omit<
+    Omit<
+    Omit<TransactionResponseParams, "blockNumber">,
+    "gasLimit">,
+    "gasPrice">,
+    "maxPriorityFeePerGas">,
+    "maxFeePerGas">,
+    "value">,
+    "chainId">,
+    "type">,
+    "nonce"> 
+{
+    blockNumber: string,
+    type: string,
+    nonce: string,
+    gas: string,
+}
 
 export class Hindsight {
     public readonly matchmaker: Matchmaker
@@ -58,19 +91,6 @@ export class Hindsight {
         }
         console.log(eventHashMap.entries())
         return eligibleEvents
-    }
-
-    public async fetchTxs(events: Array<EventHistoryEntry>) {
-        let eligibleTxs: TransactionResponse[] = []
-        for (const event of events) {
-            try {
-                const tx = await this.provider.getTransaction(event.hint.hash)
-                if (tx) eligibleTxs.push(tx)
-            } catch (e) {
-                console.log(`error getting transaction from hash: ${event.hint.hash}`, e)
-            }
-        }
-        return eligibleTxs
     }
 
     public destroy() {

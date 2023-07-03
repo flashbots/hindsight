@@ -4,7 +4,10 @@ use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, BlockNumber, H160};
 use rusty_sando::forked_db::fork_factory::ForkFactory;
 use rusty_sando::utils::state_diff;
-use simulator::config::Config;
+use simulator::{
+    config::Config,
+    data::{read_data, CachedData, HistoricalEvent},
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -13,6 +16,9 @@ async fn main() -> anyhow::Result<()> {
     let block_num = BlockNumber::Number(client.get_block_number().await?);
     let fork_block = Some(ethers::types::BlockId::Number(block_num));
     // let mut backend = GlobalBackend::new();
+
+    let cache_data = read_data(None).await?;
+    println!("cache data: {:?}", cache_data);
 
     let state_diffs = if let Some(sd) = state_diff::get_from_txs(&client, &vec![], block_num).await
     {

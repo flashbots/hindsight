@@ -1,8 +1,8 @@
-import Hindsight from './hindsight'
+import Hindsight, { TransactionResponseParamsSerialized } from './hindsight'
 import {stringify as stringifyJson, parse as parseJson} from "json-bigint"
 import EventCache from './cache'
 import { EventHistoryEntry } from '@flashbots/matchmaker-ts'
-import { TransactionResponseParams, Signature } from 'ethers'
+import { Signature } from 'ethers'
 
 const parseArgs = () => {
     const args = process.argv.slice(2)
@@ -28,14 +28,12 @@ async function main() {
 
     let skipDownload = false
     let cachedEvents: any[] = []
-    let cachedTxs: any[] = []
     try {
         const cacheFile = await cache.readCacheData()
         console.log("loaded cached data")
         skipDownload = true
         const cacheData = parseJson((await cacheFile).toString())
         cachedEvents = cacheData.events
-        cachedTxs = cacheData.transactions
     } catch (e) {
         console.log("no cache file")
     }
@@ -45,7 +43,6 @@ async function main() {
     console.log("total events", events.length)
 
     let eligibleEvents: EventHistoryEntry[] = cachedEvents
-    let eligibleTxs: TransactionResponseParams[] = cachedTxs
 
     const uniswapTopics = [
         // univ3
@@ -62,20 +59,12 @@ async function main() {
     if (!skipDownload) {
         // find uniswap-related events
         eligibleEvents = await hindsight.filterEvents(events, uniswapTopics)
-
-        // get raw txs of eligible events
-        eligibleTxs = await hindsight.fetchTxs(eligibleEvents)
     }
-
-    // ... doing stuff with the transactions ...
-    console.log("testing... eligible tx sig", Signature.from(eligibleTxs[0].signature).serialized)
-    // TODO: add simulations to Hindsight, then invoke that here
 
     if (!skipDownload) {
         // write new cache file
         await cache.writeCacheData(stringifyJson({
             events: eligibleEvents,
-            transactions: eligibleTxs,
         }, null, 2))
     }
 }

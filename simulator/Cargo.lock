@@ -3256,6 +3256,8 @@ dependencies = [
  "dotenvy",
  "ethers",
  "rusty-sando",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
