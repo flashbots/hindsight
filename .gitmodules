@@ -1,0 +1,3 @@
+[submodule "simulator/rusty-sando"]
+	path = simulator/rusty-sando
+	url = https://github.com/mouseless-eth/rusty-sando.git
