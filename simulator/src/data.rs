@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use serde::Deserialize;
 use tokio::fs;
@@ -34,14 +36,25 @@ pub struct HistoricalEvent {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct CachedData {
+pub struct CachedEvents {
     pub events: Vec<HistoricalEvent>,
 }
 
-pub async fn read_data(filename: Option<String>) -> Result<CachedData> {
-    let filename = filename.unwrap_or("events.json".to_string());
+async fn read_file<'de, T: serde::de::DeserializeOwned>(filename: String) -> Result<T> {
     let raw_data = fs::read_to_string(filename).await?;
-    Ok(serde_json::from_str(&raw_data)?)
+    let s = Arc::new(raw_data.as_str());
+    let data: T = serde_json::from_str(&s)?;
+    Ok(data)
+}
+
+pub async fn read_events(filename: Option<String>) -> Result<CachedEvents> {
+    let filename = filename.unwrap_or("events.json".to_string());
+    read_file(filename).await
+}
+
+pub async fn read_txs(filename: Option<String>) -> Result<Vec<ethers::types::Transaction>> {
+    let filename = filename.unwrap_or("txs.json".to_string());
+    read_file(filename).await
 }
 
 pub async fn write_tx_data(filename: Option<String>, data: String) -> Result<()> {
