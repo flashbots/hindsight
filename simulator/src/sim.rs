@@ -1,5 +1,4 @@
 use anyhow::Result;
-use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, BlockNumber, Transaction, H160};
 use revm::primitives::{TransactTo, B160};
 use revm::EVM;

@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use ethers::{prelude::providers::Middleware, types::Transaction};
+use ethers::prelude::providers::Middleware;
 use rusty_sando::types::BlockInfo;
 use simulator::{
     config::Config,
