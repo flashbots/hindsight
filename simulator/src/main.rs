@@ -40,11 +40,14 @@ async fn main() -> anyhow::Result<()> {
         cache_txs[4].clone(),
     ];
 
-    let next_block_num = cache_txs[0].block_number;
-    if let Some(next_block_num) = next_block_num {
-        let block = client.get_block(next_block_num).await?.unwrap();
+    let sim_block_num = signed_txs[0].block_number;
+    if let Some(sim_block_num) = sim_block_num {
+        // we're simulating txs that have already landed, so we want the block prior to that
+        let sim_block_num = sim_block_num.as_u64() - 1;
+        println!("sim block num: {:?}", sim_block_num);
+        let block = client.get_block(sim_block_num).await?.unwrap();
         let next_block = BlockInfo {
-            number: next_block_num,
+            number: sim_block_num.into(),
             timestamp: block.timestamp,
             base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
         };

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, BlockNumber, Transaction, H160};
+use revm::primitives::{TransactTo, B160};
 use revm::EVM;
 use rusty_sando::simulate::setup_block_state;
 use rusty_sando::types::BlockInfo;
@@ -43,6 +44,31 @@ pub async fn sim_bundle(
     setup_block_state(&mut evm, next_block);
 
     // TODO: build transactions from signed_txs and push them to evm
+    for tx in signed_txs {
+        evm.env.tx.caller = B160::from(tx.from);
+        evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
+        evm.env.tx.data = tx.input.0;
+        evm.env.tx.value = tx.value.into();
+        evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
+        evm.env.tx.nonce = Some(tx.nonce.as_u64());
+        evm.env.tx.gas_limit = tx.gas.as_u64();
+        match tx.transaction_type {
+            Some(ethers::types::U64([0])) => {
+                evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+            }
+            Some(_) => {
+                // type-2 tx
+                evm.env.tx.gas_priority_fee = tx.max_priority_fee_per_gas.map(|fee| fee.into());
+                evm.env.tx.gas_price = tx.max_fee_per_gas.unwrap_or_default().into();
+            }
+            None => {
+                // legacy tx
+                evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+            }
+        }
+        let _res = evm.transact_commit();
+        println!("res: {:?}", _res);
+    }
 
     // TODO: return something useful ((WHAT DO WE RETURN?))
     Ok(())
