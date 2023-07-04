@@ -13,7 +13,10 @@ pub async fn get_ws_client(rpc_url: String) -> Result<WsClient> {
     Ok(Arc::new(provider))
 }
 
-pub async fn fetch_txs(client: WsClient, events: Vec<HistoricalEvent>) -> Result<Vec<Transaction>> {
+pub async fn fetch_txs(
+    client: &WsClient,
+    events: Vec<HistoricalEvent>,
+) -> Result<Vec<Transaction>> {
     let tx_hashes: Vec<H256> = events
         .into_iter()
         .map(|e: HistoricalEvent| e.hint.hash)

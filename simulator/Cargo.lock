@@ -3256,6 +3256,7 @@ dependencies = [
  "dotenvy",
  "ethers",
  "futures",
+ "revm",
  "rusty-sando",
  "serde",
  "serde_json",
