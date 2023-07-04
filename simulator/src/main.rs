@@ -40,18 +40,22 @@ async fn main() -> anyhow::Result<()> {
         cache_txs[4].clone(),
     ];
 
+    for tx in signed_txs.clone() {
+        println!("tx block: {:?}", tx.block_number);
+    }
+
     let sim_block_num = signed_txs[0].block_number;
     if let Some(sim_block_num) = sim_block_num {
         // we're simulating txs that have already landed, so we want the block prior to that
         let sim_block_num = sim_block_num.as_u64() - 1;
         println!("sim block num: {:?}", sim_block_num);
         let block = client.get_block(sim_block_num).await?.unwrap();
-        let next_block = BlockInfo {
+        let block_info = BlockInfo {
             number: sim_block_num.into(),
             timestamp: block.timestamp,
             base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
         };
-        let _sim_result = sim_bundle(&client, signed_txs, &next_block).await?;
+        let _sim_result = sim_bundle(&client, signed_txs, &block_info).await?;
     } else {
         panic!("next block hash is none");
     }

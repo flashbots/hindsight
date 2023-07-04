@@ -17,15 +17,11 @@ pub async fn sim_bundle(
 ) -> Result<()> {
     let fork_block_num = BlockNumber::Number(block_info.number);
     let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
-    // let mut backend = GlobalBackend::new();
-
-    println!("bundle: {:?}", signed_txs);
 
     let state_diffs =
         if let Some(sd) = state_diff::get_from_txs(&client, &vec![], fork_block_num).await {
             sd
         } else {
-            // panic!("no state diff found");
             BTreeMap::<H160, AccountDiff>::new()
         };
     let initial_db = state_diff::to_cache_db(&state_diffs, fork_block, &client)
@@ -33,9 +29,8 @@ pub async fn sim_bundle(
         .unwrap();
     let fork_factory = ForkFactory::new_sandbox_factory(client.clone(), initial_db, fork_block);
 
-    // do something ...? rusty-sando evaluates target pools here, but we don't need to do that
-
     // prep vars for new thread (only relevant when we add sub-threads for each tx to calculate profit; we'll need a slightly modified version of this function to do that)
+    // TODO: this is just a reminder of the above ^^^^^^^^^^^^^^^^^^^^
     // let state_diffs = state_diffs.clone();
     // let mut fork_factory = fork_factory.clone();
 
