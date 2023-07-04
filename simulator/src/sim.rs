@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ethers::providers::Middleware;
-use ethers::types::{AccountDiff, BlockNumber, Bytes, H160};
+use ethers::types::{AccountDiff, BlockNumber, Transaction, H160};
 use revm::EVM;
 use rusty_sando::simulate::setup_block_state;
 use rusty_sando::types::BlockInfo;
@@ -11,7 +11,7 @@ use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 
 pub async fn sim_bundle(
     client: &WsClient,
-    signed_txs: Vec<Bytes>,
+    signed_txs: Vec<Transaction>,
     next_block: &BlockInfo,
 ) -> Result<()> {
     let block_num = BlockNumber::Number(client.get_block_number().await?);

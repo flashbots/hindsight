@@ -32,16 +32,13 @@ async fn main() -> anyhow::Result<()> {
         write_tx_data(None, serde_json::to_string_pretty(&cached_txs)?).await?;
     }
 
-    let signed_txs = [
+    let signed_txs = vec![
         cache_txs[0].clone(),
         cache_txs[1].clone(),
         cache_txs[2].clone(),
         cache_txs[3].clone(),
         cache_txs[4].clone(),
-    ]
-    .into_iter()
-    .map(|tx| Transaction::from(tx).rlp())
-    .collect();
+    ];
 
     let next_block_num = cache_txs[0].block_number;
     if let Some(next_block_num) = next_block_num {
