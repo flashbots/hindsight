@@ -13,21 +13,21 @@ use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 pub async fn sim_bundle(
     client: &WsClient,
     signed_txs: Vec<Transaction>,
-    next_block: &BlockInfo,
+    block_info: &BlockInfo,
 ) -> Result<()> {
-    let block_num = BlockNumber::Number(client.get_block_number().await?);
-    let fork_block = Some(ethers::types::BlockId::Number(block_num));
+    let fork_block_num = BlockNumber::Number(block_info.number);
+    let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
     // let mut backend = GlobalBackend::new();
 
     println!("bundle: {:?}", signed_txs);
 
-    let state_diffs = if let Some(sd) = state_diff::get_from_txs(&client, &vec![], block_num).await
-    {
-        sd
-    } else {
-        // panic!("no state diff found");
-        BTreeMap::<H160, AccountDiff>::new()
-    };
+    let state_diffs =
+        if let Some(sd) = state_diff::get_from_txs(&client, &vec![], fork_block_num).await {
+            sd
+        } else {
+            // panic!("no state diff found");
+            BTreeMap::<H160, AccountDiff>::new()
+        };
     let initial_db = state_diff::to_cache_db(&state_diffs, fork_block, &client)
         .await
         .unwrap();
@@ -41,7 +41,7 @@ pub async fn sim_bundle(
 
     let mut evm = EVM::new();
     evm.database(fork_factory.new_sandbox_fork());
-    setup_block_state(&mut evm, next_block);
+    setup_block_state(&mut evm, block_info);
 
     // TODO: build transactions from signed_txs and push them to evm
     for tx in signed_txs {
