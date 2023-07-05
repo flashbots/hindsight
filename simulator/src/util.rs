@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use crate::data::HistoricalEvent;
 
+pub type WsClient = Arc<Provider<Ws>>;
+
 pub async fn get_ws_client(rpc_url: String) -> Result<WsClient> {
     let provider = Provider::<Ws>::connect(rpc_url).await?;
     Ok(Arc::new(provider))
@@ -52,5 +54,3 @@ pub async fn fetch_txs(
 
     Ok(full_txs.to_vec())
 }
-
-pub type WsClient = Arc<Provider<Ws>>;

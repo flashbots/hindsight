@@ -3,7 +3,7 @@ use rusty_sando::types::BlockInfo;
 use simulator::{
     config::Config,
     data::{read_events, read_txs, write_tx_data},
-    sim::sim_bundle,
+    sim::{fork_evm, sim_bundle},
     util::fetch_txs,
 };
 
@@ -48,19 +48,27 @@ async fn main() -> anyhow::Result<()> {
                 // we're simulating txs that have already landed, so we want the block prior to that
                 let sim_block_num = sim_block_num.as_u64() - 1;
                 println!("sim block num: {:?}", sim_block_num);
+                // TODO: clean up all these unwraps!
+                // TODO: clean up all these unwraps!
+                // TODO: clean up all these unwraps!
                 let block = client.get_block(sim_block_num).await.unwrap().unwrap();
                 let block_info = BlockInfo {
                     number: sim_block_num.into(),
                     timestamp: block.timestamp,
                     base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
                 };
-                let _sim_result = sim_bundle(&client, vec![tx], &block_info).await.unwrap();
+                let bundle = vec![
+                    tx,
+                    // my backrun here
+                ];
+
+                let mut evm = fork_evm(&client, &block_info).await.unwrap();
+                let _sim_result = sim_bundle(&mut evm, bundle).await.unwrap();
             } else {
                 panic!("next block hash is none");
             }
         }));
     }
-    // let _ = join_all(thread_handlers);
     for handle in thread_handlers.into_iter() {
         handle.await?;
     }
