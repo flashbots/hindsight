@@ -1,3 +1,4 @@
+use colored::Colorize;
 use ethers::prelude::providers::Middleware;
 use rusty_sando::types::BlockInfo;
 use simulator::{
@@ -61,9 +62,22 @@ async fn main() -> anyhow::Result<()> {
                     tx,
                     // my backrun here
                 ];
-
                 let mut evm = fork_evm(&client, &block_info).await.unwrap();
-                let _sim_result = sim_bundle(&mut evm, bundle).await.unwrap();
+                let sim_result = sim_bundle(&mut evm, bundle).await.unwrap();
+                let success = sim_result
+                    .iter()
+                    .map(|r| r.is_success())
+                    .reduce(|a, b| a && b)
+                    .unwrap_or(false);
+                println!(
+                    "{}{:?}",
+                    if success {
+                        "sim result".green()
+                    } else {
+                        "sim result".red()
+                    },
+                    sim_result
+                );
             } else {
                 panic!("next block hash is none");
             }

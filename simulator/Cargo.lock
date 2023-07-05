@@ -483,13 +483,13 @@ dependencies = [
 
 [[package]]
 name = "colored"
-version = "2.0.0"
+version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3616f750b84d8f0de8a58bda93e08e2a81ad3f523089b05f1dffecab48c6cbd"
+checksum = "2674ec482fbc38012cf31e6c42ba0177b431a0cb6f15fe40efa5aab1bda516f6"
 dependencies = [
- "atty",
+ "is-terminal",
  "lazy_static",
- "winapi",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2948,7 +2948,7 @@ version = "0.1.0"
 dependencies = [
  "async-recursion",
  "chrono",
- "colored 2.0.0",
+ "colored 2.0.4",
  "dashmap",
  "dotenv",
  "ethers",
@@ -3253,6 +3253,7 @@ name = "simulator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "colored 2.0.4",
  "dotenvy",
  "ethers",
  "futures",
