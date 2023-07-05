@@ -38,23 +38,31 @@ async fn main() -> anyhow::Result<()> {
         cache_txs[4].clone(),
     ];
 
+    let mut thread_handlers = vec![];
     for tx in signed_txs.clone() {
-        println!("tx block: {:?}", tx.block_number);
-        let sim_block_num = tx.block_number;
-        if let Some(sim_block_num) = sim_block_num {
-            // we're simulating txs that have already landed, so we want the block prior to that
-            let sim_block_num = sim_block_num.as_u64() - 1;
-            println!("sim block num: {:?}", sim_block_num);
-            let block = client.get_block(sim_block_num).await?.unwrap();
-            let block_info = BlockInfo {
-                number: sim_block_num.into(),
-                timestamp: block.timestamp,
-                base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
-            };
-            let _sim_result = sim_bundle(&client, vec![tx], &block_info).await?;
-        } else {
-            panic!("next block hash is none");
-        }
+        let client = client.clone();
+        thread_handlers.push(tokio::spawn(async move {
+            println!("tx block: {:?}", tx.block_number);
+            let sim_block_num = tx.block_number;
+            if let Some(sim_block_num) = sim_block_num {
+                // we're simulating txs that have already landed, so we want the block prior to that
+                let sim_block_num = sim_block_num.as_u64() - 1;
+                println!("sim block num: {:?}", sim_block_num);
+                let block = client.get_block(sim_block_num).await.unwrap().unwrap();
+                let block_info = BlockInfo {
+                    number: sim_block_num.into(),
+                    timestamp: block.timestamp,
+                    base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
+                };
+                let _sim_result = sim_bundle(&client, vec![tx], &block_info).await.unwrap();
+            } else {
+                panic!("next block hash is none");
+            }
+        }));
+    }
+    // let _ = join_all(thread_handlers);
+    for handle in thread_handlers.into_iter() {
+        handle.await?;
     }
 
     Ok(())

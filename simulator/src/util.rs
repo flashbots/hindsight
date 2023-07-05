@@ -27,7 +27,7 @@ pub async fn fetch_txs(
     for tx_hash in tx_hashes.into_iter() {
         let client = client.clone();
         handles.push(tokio::spawn(future::lazy(move |_| async move {
-            let tx = &client.clone().get_transaction(tx_hash.to_owned()).await;
+            let tx = &client.get_transaction(tx_hash.to_owned()).await;
             if let Ok(tx) = tx {
                 println!("tx found: {:?}", tx_hash.to_owned());
                 if let Some(tx) = tx {

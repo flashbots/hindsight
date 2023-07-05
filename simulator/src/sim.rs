@@ -2,7 +2,7 @@ use anyhow::Result;
 use ethers::types::{AccountDiff, BlockNumber, Transaction, H160};
 use revm::primitives::{TransactTo, B160};
 use revm::EVM;
-use rusty_sando::simulate::setup_block_state;
+use rusty_sando::simulate::{attach_braindance_module, setup_block_state};
 use rusty_sando::types::BlockInfo;
 use std::collections::BTreeMap;
 
@@ -31,11 +31,12 @@ pub async fn sim_bundle(
     // prep vars for new thread (only relevant when we add sub-threads for each tx to calculate profit; we'll need a slightly modified version of this function to do that)
     // TODO: this is just a reminder of the above ^^^^^^^^^^^^^^^^^^^^
     // let state_diffs = state_diffs.clone();
-    // let mut fork_factory = fork_factory.clone();
+    let mut fork_factory = fork_factory.clone();
 
     let mut evm = EVM::new();
     evm.database(fork_factory.new_sandbox_fork());
     setup_block_state(&mut evm, block_info);
+    attach_braindance_module(&mut fork_factory);
 
     // TODO: build transactions from signed_txs and push them to evm
     for tx in signed_txs {
