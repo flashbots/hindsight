@@ -5,7 +5,7 @@ use rusty_sando::types::BlockInfo;
 use simulator::{
     config::Config,
     data::{read_events, read_txs, write_tx_data, HistoricalEvent},
-    sim::find_optimal_backrun,
+    sim::{find_optimal_backrun_amount_in, sim_arb},
     util::fetch_txs,
 };
 
@@ -90,8 +90,8 @@ async fn main() -> anyhow::Result<()> {
                 //     // my backrun here
                 // ];
                 // let mut evm = fork_evm(&client, &block_info).await.unwrap();
-                let trade_params = find_optimal_backrun(&client, tx, &event, &block_info).await;
-                println!("trade params: {:?}", trade_params);
+                let res = find_optimal_backrun_amount_in(&client, tx, &event, &block_info).await;
+                println!("res: {:?}", res);
                 // let sim_result = sim_bundle(&mut evm, bundle).await.unwrap();
                 // let success = sim_result
                 //     .iter()

@@ -3,7 +3,7 @@ pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
     providers::{Middleware, Provider, Ws},
-    types::{Address, Transaction, H256, U256},
+    types::{transaction::eip2718::TypedTransaction, Address, Bytes, Transaction, H256, U256},
 };
 use futures::future;
 use rusty_sando::{prelude::PoolVariant, types::BlockInfo};
@@ -196,4 +196,19 @@ pub async fn fetch_price_v2(client: &WsClient, pair: Address) -> Result<U256> {
         reserve1.into(),
         token0_decimals,
     )?)
+}
+
+pub async fn get_balance_call(
+    client: &WsClient,
+    token: Address,
+    account: Address,
+) -> Result<TypedTransaction> {
+    abigen!(
+        IERC20,
+        r#"[
+            function balanceOf(address account) external view returns (uint256)
+        ]"#
+    );
+    let contract = IERC20::new(token, client.clone());
+    Ok(contract.balance_of(account).tx)
 }

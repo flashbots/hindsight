@@ -2,12 +2,13 @@ use anyhow::Result;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 
-use revm::primitives::{ExecutionResult, Output, TransactTo, B160, U256 as rU256};
+use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
 use rusty_sando::prelude::PoolVariant;
 use rusty_sando::simulate::{
-    attach_braindance_module, braindance_address, braindance_controller_address, setup_block_state,
+    attach_braindance_module, braindance_address, braindance_controller_address,
+    braindance_starting_balance, setup_block_state,
 };
 use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
@@ -208,12 +209,25 @@ async fn derive_trade_params(
 }
 
 /// Find the optimal backrun for a given tx.
-pub async fn find_optimal_backrun(
+pub async fn find_optimal_backrun_amount_in(
     client: &WsClient,
     user_tx: Transaction,
     event: &HistoricalEvent,
     block_info: &BlockInfo,
-) -> Result<()> {
+) -> Result<U256> {
+    // TODO: loop this
+    let revenue = sim_arb(client, user_tx, event, block_info).await?;
+
+    Ok(0.into())
+}
+
+/// Simulate a two-step arbitrage on a forked EVM.
+pub async fn sim_arb(
+    client: &WsClient,
+    user_tx: Transaction,
+    event: &HistoricalEvent,
+    block_info: &BlockInfo,
+) -> Result<U256> {
     let mut evm = fork_evm(client, block_info).await?;
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
 
@@ -222,8 +236,8 @@ pub async fn find_optimal_backrun(
         // TODO: change `amount_in` over many iterations to find optimal trade
         // let amount_in = params.amount0_sent.max(params.amount1_sent);
         let amount_in = ETH;
-        println!("price {:?}", params.price);
         println!("amount in {:?}", amount_in);
+        println!("price {:?}", params.price);
 
         // look at price (TKN/ETH) on each exchange to determine trade direction
         // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
@@ -235,7 +249,7 @@ pub async fn find_optimal_backrun(
         .await?[0];
         if other_pool == H160::zero() {
             println!("no other pool found");
-            return Ok(());
+            return Ok(U256::zero());
         }
         let alt_price = match params.pool_variant {
             PoolVariant::UniswapV2 => fetch_price_v3(client, other_pool).await?,
@@ -294,7 +308,7 @@ pub async fn find_optimal_backrun(
         let res = commit_braindance_swap(
             &mut evm,
             get_other_variant(start_pool_variant),
-            amount_in,
+            amount_received,
             end_pool,
             params.tokens.token,
             params.tokens.weth,
@@ -302,19 +316,18 @@ pub async fn find_optimal_backrun(
             None,
         );
         println!("braindance 2 completed. {:?}", res);
+        return Ok(res?);
     } else {
         println!("no params found for tx {:?}", user_tx.hash);
     }
 
-    // TODO: return something useful
-    Ok(())
+    Ok(U256::zero())
 }
 
-/// Execute a transaction on the forked EVM, commiting its state changes to the EVM's ForkDB.
-pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
+fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
     evm.env.tx.caller = B160::from(tx.from);
     evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
-    evm.env.tx.data = tx.input.0;
+    evm.env.tx.data = tx.input.to_owned().0;
     evm.env.tx.value = tx.value.into();
     evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
     evm.env.tx.nonce = Some(tx.nonce.as_u64());
@@ -333,7 +346,19 @@ pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<Executi
             evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
         }
     }
+    Ok(())
+}
+
+/// Execute a transaction on the forked EVM, commiting its state changes to the EVM's ForkDB.
+pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
+    inject_tx(evm, &tx)?;
     let res = evm.transact_commit();
+    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
+}
+
+pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAndState> {
+    inject_tx(evm, &tx)?;
+    let res = evm.transact();
     Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
 }
 
@@ -451,13 +476,15 @@ mod test {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn it_simulates_swap() -> Result<()> {
+    async fn it_simulates_swaps() -> Result<()> {
         let client = get_ws_client("ws://localhost:8545".to_owned()).await?;
         let block_num = client.get_block_number().await?;
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB
         let pool = get_other_pair_addresses(&client, (weth, tkn), PoolVariant::UniswapV3).await?[0];
+        println!("starting balance: {:?}", braindance_starting_balance());
+        // buy 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
             PoolVariant::UniswapV2,
@@ -469,10 +496,11 @@ mod test {
             None,
         )?;
         println!("res: {:?}", res);
+        // sell 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
             PoolVariant::UniswapV2,
-            res - U256::from(1),
+            res,
             pool,
             tkn,
             weth,
