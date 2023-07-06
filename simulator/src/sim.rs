@@ -24,6 +24,8 @@ use crate::util::{
 };
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 
+const MAX_DEPTH: usize = 4;
+
 /// Return an evm instance forked from the provided block info and client state
 /// with braindance module initialized.
 pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<ForkDB>> {
@@ -221,10 +223,17 @@ async fn step_arb(
     intervals: usize,
     depth: Option<usize>,
 ) -> Result<(U256, U256)> {
+    println!(
+        "************************** step_arb
+    depth:\t{:?}
+    range:\t{:?}
+    ",
+        depth, range
+    );
     // returns best (in, out) amounts
     let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into()));
     if let Some(depth) = depth {
-        if depth > 3 {
+        if depth > MAX_DEPTH {
             return Ok(best_amount_in_out);
         } else {
             // run sims with current params
@@ -258,8 +267,10 @@ async fn step_arb(
 
             // range recurses halfway between the best amount in and the previous range
             let range = [
-                (best_amount_in_out.0 - range[0]) / U256::from(2),
-                best_amount_in_out.0 + ((range[1] - best_amount_in_out.0) / U256::from(2)),
+                best_amount_in_out.0
+                    - ((best_amount_in_out.0 - range[0]) / U256::from(intervals / 2)),
+                best_amount_in_out.0
+                    + ((range[1] - best_amount_in_out.0) / U256::from(intervals / 2)),
             ];
             return step_arb(
                 client,
@@ -289,70 +300,44 @@ async fn step_arb(
 }
 
 /// Find the optimal backrun for a given tx.
-pub async fn find_optimal_backrun_amount_in(
+pub async fn find_optimal_backrun_amount_in_out(
     client: &WsClient,
     user_tx: Transaction,
     event: &HistoricalEvent,
     block_info: &BlockInfo,
-) -> Result<U256> {
+) -> Result<(U256, U256)> {
     let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
     let params = params.ok_or(anyhow::anyhow!("no arb params were generated for tx"))?;
-    let amount_in_start = if params.token0_is_weth {
-        params.amount0_sent
+
+    // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
+    let amount_in_start = if params.token_in == params.tokens.weth {
+        if params.token0_is_weth {
+            params.amount0_sent.into_raw()
+        } else {
+            params.amount1_sent.into_raw()
+        }
     } else {
-        params.amount1_sent
+        if params.token0_is_weth {
+            params.amount1_sent.into_raw() * params.price
+        } else {
+            params.amount0_sent.into_raw() * params.price
+        }
     };
 
-    // let mut results = vec![];
-
-    // TODO: loop this
-    // for i in 0..=15 {
-    //     let amount_in = amount_in_start.into_raw()
-    //         - U256::from(i) * (amount_in_start.into_raw() / U256::from(15));
-    //     let client = client.clone();
-    //     let user_tx = user_tx.to_owned();
-    //     let block_info = block_info.clone();
-    //     let params = params.clone();
-    //     results.push(tokio::spawn(async move {
-    //         let revenue =
-    //             sim_arb(&client, user_tx.to_owned(), &block_info, &params, amount_in).await;
-    //         if let Ok(revenue) = revenue {
-    //             println!("revenue: {:?}", revenue);
-    //             Some((amount_in, revenue))
-    //         } else {
-    //             println!("error: {:?}", revenue);
-    //             None
-    //         }
-    //     }));
-    // }
-    let amount_in_ceil = amount_in_start.into_raw() * U256::from(2);
+    let amount_in_ceil = amount_in_start;
     let res = step_arb(
         client,
         &user_tx,
         block_info,
         &params,
         None,
-        [0.into(), amount_in_ceil],
+        [amount_in_start / 200, amount_in_ceil],
         15,
         None,
     )
     .await?;
     println!("res: {:?}", res);
-    // let revenue = sim_arb(client, user_tx, block_info, &params, amount_in.into_raw()).await?;
-    // let res = futures::future::join_all(results)
-    //     .await
-    //     .into_iter()
-    //     .filter_map(|r| r.ok())
-    //     .filter_map(|r| r)
-    //     .max_by(|a, b| a.1.cmp(&b.1))
-    //     .map(|r| r.0);
-    // if let Some(res) = res {
-    //     Ok(res)
-    // } else {
-    //     // Ok(0.into())
-    //     Err(anyhow::anyhow!("no revenue was generated"))
-    // }
-    Ok(res.0)
+    Ok(res)
 }
 
 /// Simulate a two-step arbitrage on a forked EVM.
