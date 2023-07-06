@@ -41,11 +41,28 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let signed_txs = vec![
-        cache_txs[0].clone(),
-        cache_txs[1].clone(),
+        // cache_txs[0].clone(),
+        // cache_txs[1].clone(),
         // cache_txs[2].clone(),
         // cache_txs[3].clone(),
         // cache_txs[4].clone(),
+        // cache_txs[5].clone(),
+        // cache_txs[6].clone(),
+        // cache_txs[7].clone(),
+        // cache_txs[8].clone(),
+        // cache_txs[9].clone(),
+        // cache_txs[10].clone(),
+        // cache_txs[11].clone(),
+        // cache_txs[12].clone(),
+        // cache_txs[13].clone(),
+        // cache_txs[14].clone(),
+        // cache_txs[15].clone(),
+        // cache_txs[16].clone(),
+        // cache_txs[17].clone(),
+        cache_txs[18].clone(),
+        // cache_txs[19].clone(),
+        // cache_txs[20].clone(),
+        // cache_txs[21].clone(),
     ];
 
     let mut thread_handlers = vec![];
