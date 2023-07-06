@@ -1,7 +1,9 @@
 use anyhow::Result;
+use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 
+use futures::future;
 use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
@@ -208,6 +210,84 @@ async fn derive_trade_params(
     }))
 }
 
+#[async_recursion]
+async fn step_arb(
+    client: &WsClient,
+    user_tx: &Transaction,
+    block_info: &BlockInfo,
+    params: &UserTradeParams,
+    best_amount_in_out: Option<(U256, U256)>,
+    range: [U256; 2],
+    intervals: usize,
+    depth: Option<usize>,
+) -> Result<(U256, U256)> {
+    // returns best (in, out) amounts
+    let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into()));
+    if let Some(depth) = depth {
+        if depth > 3 {
+            return Ok(best_amount_in_out);
+        } else {
+            // run sims with current params
+            let mut handles = vec![];
+            for i in 0..intervals {
+                let amount_in =
+                    range[0] + (range[1] - range[0]) * U256::from(i) / U256::from(intervals);
+                let client = client.clone();
+                let user_tx = user_tx.clone();
+                let block_info = block_info.clone();
+                let params = params.clone();
+
+                handles.push(tokio::spawn(async move {
+                    sim_arb(&client, user_tx, &block_info, &params, amount_in)
+                        .await
+                        .unwrap_or((0.into(), 0.into()))
+                }));
+            }
+            future::join_all(handles)
+                .await
+                .into_iter()
+                .for_each(|result| {
+                    if let Ok((amount_in, amount_out)) = result {
+                        if amount_out > best_amount_in_out.1 {
+                            best_amount_in_out = (amount_in, amount_out);
+                        }
+                    }
+                });
+
+            // refine params and recurse
+
+            // range recurses halfway between the best amount in and the previous range
+            let range = [
+                (best_amount_in_out.0 - range[0]) / U256::from(2),
+                best_amount_in_out.0 + ((range[1] - best_amount_in_out.0) / U256::from(2)),
+            ];
+            return step_arb(
+                client,
+                user_tx,
+                block_info,
+                params,
+                Some(best_amount_in_out),
+                range,
+                intervals,
+                Some(depth + 1),
+            )
+            .await;
+        }
+    } else {
+        return step_arb(
+            client,
+            user_tx,
+            block_info,
+            params,
+            Some(best_amount_in_out),
+            range,
+            intervals,
+            Some(0),
+        )
+        .await;
+    }
+}
+
 /// Find the optimal backrun for a given tx.
 pub async fn find_optimal_backrun_amount_in(
     client: &WsClient,
@@ -217,44 +297,62 @@ pub async fn find_optimal_backrun_amount_in(
 ) -> Result<U256> {
     let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
     let params = params.ok_or(anyhow::anyhow!("no arb params were generated for tx"))?;
-    let amount_in_start = params.amount0_sent.max(params.amount1_sent);
+    let amount_in_start = if params.token0_is_weth {
+        params.amount0_sent
+    } else {
+        params.amount1_sent
+    };
 
-    let mut results = vec![];
+    // let mut results = vec![];
 
     // TODO: loop this
-    for i in 0..=4 {
-        let amount_in = amount_in_start.into_raw() / U256::from(2).pow(i.into());
-        let client = client.clone();
-        let user_tx = user_tx.to_owned();
-        let block_info = block_info.clone();
-        let params = params.clone();
-        results.push(tokio::spawn(async move {
-            let revenue =
-                sim_arb(&client, user_tx.to_owned(), &block_info, &params, amount_in).await;
-            if let Ok(revenue) = revenue {
-                println!("revenue: {:?}", revenue);
-                Some((amount_in, revenue))
-            } else {
-                println!("error: {:?}", revenue);
-                None
-            }
-        }));
-    }
-    // let revenue = sim_arb(client, user_tx, block_info, &params, amount_in.into_raw()).await?;
-    let res = futures::future::join_all(results)
-        .await
-        .into_iter()
-        .filter_map(|r| r.ok())
-        .filter_map(|r| r)
-        .max_by(|a, b| a.1.cmp(&b.1))
-        .map(|r| r.0);
+    // for i in 0..=15 {
+    //     let amount_in = amount_in_start.into_raw()
+    //         - U256::from(i) * (amount_in_start.into_raw() / U256::from(15));
+    //     let client = client.clone();
+    //     let user_tx = user_tx.to_owned();
+    //     let block_info = block_info.clone();
+    //     let params = params.clone();
+    //     results.push(tokio::spawn(async move {
+    //         let revenue =
+    //             sim_arb(&client, user_tx.to_owned(), &block_info, &params, amount_in).await;
+    //         if let Ok(revenue) = revenue {
+    //             println!("revenue: {:?}", revenue);
+    //             Some((amount_in, revenue))
+    //         } else {
+    //             println!("error: {:?}", revenue);
+    //             None
+    //         }
+    //     }));
+    // }
+    let amount_in_ceil = amount_in_start.into_raw() * U256::from(2);
+    let res = step_arb(
+        client,
+        &user_tx,
+        block_info,
+        &params,
+        None,
+        [0.into(), amount_in_ceil],
+        15,
+        None,
+    )
+    .await?;
     println!("res: {:?}", res);
-    if let Some(res) = res {
-        Ok(res)
-    } else {
-        // Ok(0.into())
-        Err(anyhow::anyhow!("no revenue was generated"))
-    }
+    // let revenue = sim_arb(client, user_tx, block_info, &params, amount_in.into_raw()).await?;
+    // let res = futures::future::join_all(results)
+    //     .await
+    //     .into_iter()
+    //     .filter_map(|r| r.ok())
+    //     .filter_map(|r| r)
+    //     .max_by(|a, b| a.1.cmp(&b.1))
+    //     .map(|r| r.0);
+    // if let Some(res) = res {
+    //     Ok(res)
+    // } else {
+    //     // Ok(0.into())
+    //     Err(anyhow::anyhow!("no revenue was generated"))
+    // }
+    Ok(res.0)
 }
 
 /// Simulate a two-step arbitrage on a forked EVM.
@@ -264,7 +362,7 @@ pub async fn sim_arb(
     block_info: &BlockInfo,
     params: &UserTradeParams,
     amount_in: U256,
-) -> Result<U256> {
+) -> Result<(U256, U256)> {
     let mut evm = fork_evm(client, block_info).await?;
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
 
@@ -351,7 +449,7 @@ pub async fn sim_arb(
         None,
     )?;
     println!("braindance 2 completed. {:?}", res);
-    Ok(res)
+    Ok((amount_in, res))
 }
 
 fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
