@@ -8,7 +8,7 @@ use tokio::fs;
 // TODO: replace serde types w/ mev-share-rs //
 //*******************************************//
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MevShareTx {
     pub to: Option<ethers::types::Address>,
     #[serde(rename(deserialize = "callData"))]
@@ -17,7 +17,7 @@ pub struct MevShareTx {
     pub function_selector: Option<ethers::types::Bytes>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct HistoricalEventHint {
     pub txs: Option<Vec<MevShareTx>>,
     pub hash: ethers::types::H256,
@@ -28,7 +28,7 @@ pub struct HistoricalEventHint {
     pub mev_gas_price: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct HistoricalEvent {
     pub block: u64,
     pub timestamp: u64,

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use ethers::{
+    prelude::abigen,
     providers::{Middleware, Provider, Ws},
-    types::{Transaction, H256},
+    types::{Address, Transaction, H256},
 };
 use futures::future;
+use rusty_sando::types::BlockInfo;
 use std::sync::Arc;
 
 use crate::data::HistoricalEvent;
@@ -53,4 +55,30 @@ pub async fn fetch_txs(
     }
 
     Ok(full_txs.to_vec())
+}
+
+pub async fn get_pair_tokens(client: &WsClient, pair: Address) -> Result<(Address, Address)> {
+    abigen!(
+        IPairTokens,
+        r#"[
+            function token0() external view returns (address)
+            function token1() external view returns (address)
+        ]"#
+    );
+    let contract = IPairTokens::new(pair, client.clone());
+    let token0 = contract.token_0().call().await?;
+    let token1 = contract.token_1().call().await?;
+    Ok((token0, token1))
+}
+
+pub async fn get_block_info(client: &WsClient, block_num: u64) -> Result<BlockInfo> {
+    let block = client
+        .get_block(block_num)
+        .await?
+        .ok_or(anyhow::format_err!("failed to get block {:?}", block_num))?;
+    Ok(BlockInfo {
+        number: block_num.into(),
+        timestamp: block.timestamp,
+        base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
+    })
 }
