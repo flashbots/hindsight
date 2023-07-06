@@ -9,8 +9,7 @@ use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
 use rusty_sando::prelude::PoolVariant;
 use rusty_sando::simulate::{
-    attach_braindance_module, braindance_address, braindance_controller_address,
-    braindance_starting_balance, setup_block_state,
+    attach_braindance_module, braindance_address, braindance_controller_address, setup_block_state,
 };
 use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
@@ -20,11 +19,13 @@ use std::str::FromStr;
 use crate::data::HistoricalEvent;
 use crate::util::{
     fetch_price_v2, fetch_price_v3, get_other_pair_addresses, get_other_variant, get_pair_tokens,
-    get_price_v2, get_price_v3, WsClient, ETH,
+    get_price_v2, get_price_v3, WsClient,
 };
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 
-const MAX_DEPTH: usize = 4;
+const MAX_DEPTH: usize = 5;
+// number
+const STEP_INTERVALS: usize = 15;
 
 /// Return an evm instance forked from the provided block info and client state
 /// with braindance module initialized.
@@ -233,44 +234,43 @@ async fn step_arb(
     // returns best (in, out) amounts
     let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into()));
     if let Some(depth) = depth {
-        if depth > MAX_DEPTH {
+        // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
+        if depth > MAX_DEPTH
+            || (best_amount_in_out.0 > U256::from(0)
+                && best_amount_in_out.0 < (U256::from(180_000) * block_info.base_fee))
+        {
             return Ok(best_amount_in_out);
         } else {
             // run sims with current params
             let mut handles = vec![];
+            let band_width = (range[1] - range[0]) / U256::from(intervals);
             for i in 0..intervals {
-                let amount_in =
-                    range[0] + (range[1] - range[0]) * U256::from(i) / U256::from(intervals);
+                let amount_in = range[0] + band_width * U256::from(i);
                 let client = client.clone();
                 let user_tx = user_tx.clone();
                 let block_info = block_info.clone();
                 let params = params.clone();
 
-                handles.push(tokio::spawn(async move {
-                    sim_arb(&client, user_tx, &block_info, &params, amount_in)
+                handles.push(tokio::task::spawn(async move {
+                    sim_arb(&client.clone(), user_tx, &block_info, &params, amount_in)
                         .await
                         .unwrap_or((0.into(), 0.into()))
                 }));
             }
-            future::join_all(handles)
-                .await
-                .into_iter()
-                .for_each(|result| {
-                    if let Ok((amount_in, amount_out)) = result {
-                        if amount_out > best_amount_in_out.1 {
-                            best_amount_in_out = (amount_in, amount_out);
-                        }
-                    }
-                });
+            let revenues = future::join_all(handles).await;
+            revenues.into_iter().for_each(|result| {
+                let result = result.unwrap_or((0.into(), 0.into()));
+                // .unwrap_or((0.into(), 0.into()));
+                let (amount_in, amount_out) = result;
+                if amount_out > best_amount_in_out.1 {
+                    best_amount_in_out = (amount_in, amount_out);
+                }
+            });
 
             // refine params and recurse
-
-            // range recurses halfway between the best amount in and the previous range
             let range = [
-                best_amount_in_out.0
-                    - ((best_amount_in_out.0 - range[0]) / U256::from(intervals / 2)),
-                best_amount_in_out.0
-                    + ((range[1] - best_amount_in_out.0) / U256::from(intervals / 2)),
+                best_amount_in_out.0 - band_width,
+                best_amount_in_out.0 + band_width,
             ];
             return step_arb(
                 client,
@@ -323,16 +323,16 @@ pub async fn find_optimal_backrun_amount_in_out(
             params.amount0_sent.into_raw() * params.price
         }
     };
+    let initial_range = [0.into(), amount_in_start];
 
-    let amount_in_ceil = amount_in_start;
     let res = step_arb(
         client,
         &user_tx,
         block_info,
         &params,
         None,
-        [amount_in_start / 200, amount_in_ceil],
-        15,
+        initial_range,
+        STEP_INTERVALS,
         None,
     )
     .await?;
@@ -564,9 +564,10 @@ pub fn commit_braindance_swap(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{get_block_info, get_ws_client};
+    use crate::util::{get_block_info, get_ws_client, ETH};
     use anyhow::Result;
     use ethers::providers::Middleware;
+    use rusty_sando::simulate::braindance_starting_balance;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
         let block_info = get_block_info(&client, block_num).await?;

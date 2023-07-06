@@ -3,7 +3,7 @@ pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
     providers::{Middleware, Provider, Ws},
-    types::{transaction::eip2718::TypedTransaction, Address, Bytes, Transaction, H256, U256},
+    types::{transaction::eip2718::TypedTransaction, Address, Transaction, H256, U256},
 };
 use futures::future;
 use rusty_sando::{prelude::PoolVariant, types::BlockInfo};
