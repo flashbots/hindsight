@@ -49,7 +49,7 @@ pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<F
 
 /// Information derived from user's trade tx.
 #[derive(Debug, Clone)]
-struct UserTradeParams {
+pub struct UserTradeParams {
     pub pool_variant: PoolVariant,
     pub token_in: Address,
     pub token_out: Address,
@@ -62,7 +62,7 @@ struct UserTradeParams {
 }
 
 #[derive(Debug, Clone)]
-struct TokenPair {
+pub struct TokenPair {
     pub weth: Address,
     pub token: Address,
 }
@@ -215,113 +215,143 @@ pub async fn find_optimal_backrun_amount_in(
     event: &HistoricalEvent,
     block_info: &BlockInfo,
 ) -> Result<U256> {
-    // TODO: loop this
-    let revenue = sim_arb(client, user_tx, event, block_info).await?;
+    let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
+    let params = params.ok_or(anyhow::anyhow!("no arb params were generated for tx"))?;
+    let amount_in_start = params.amount0_sent.max(params.amount1_sent);
 
-    Ok(0.into())
+    let mut results = vec![];
+
+    // TODO: loop this
+    for i in 0..=4 {
+        let amount_in = amount_in_start.into_raw() / U256::from(2).pow(i.into());
+        let client = client.clone();
+        let user_tx = user_tx.to_owned();
+        let block_info = block_info.clone();
+        let params = params.clone();
+        results.push(tokio::spawn(async move {
+            let revenue =
+                sim_arb(&client, user_tx.to_owned(), &block_info, &params, amount_in).await;
+            if let Ok(revenue) = revenue {
+                println!("revenue: {:?}", revenue);
+                Some((amount_in, revenue))
+            } else {
+                println!("error: {:?}", revenue);
+                None
+            }
+        }));
+    }
+    // let revenue = sim_arb(client, user_tx, block_info, &params, amount_in.into_raw()).await?;
+    let res = futures::future::join_all(results)
+        .await
+        .into_iter()
+        .filter_map(|r| r.ok())
+        .filter_map(|r| r)
+        .max_by(|a, b| a.1.cmp(&b.1))
+        .map(|r| r.0);
+    println!("res: {:?}", res);
+    if let Some(res) = res {
+        Ok(res)
+    } else {
+        // Ok(0.into())
+        Err(anyhow::anyhow!("no revenue was generated"))
+    }
 }
 
 /// Simulate a two-step arbitrage on a forked EVM.
 pub async fn sim_arb(
     client: &WsClient,
     user_tx: Transaction,
-    event: &HistoricalEvent,
     block_info: &BlockInfo,
+    params: &UserTradeParams,
+    amount_in: U256,
 ) -> Result<U256> {
     let mut evm = fork_evm(client, block_info).await?;
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
 
-    let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
-    if let Some(params) = params {
-        // TODO: change `amount_in` over many iterations to find optimal trade
-        // let amount_in = params.amount0_sent.max(params.amount1_sent);
-        let amount_in = ETH;
-        println!("amount in {:?}", amount_in);
-        println!("price {:?}", params.price);
+    // TODO: change `amount_in` over many iterations to find optimal trade
+    // let amount_in = params.amount0_sent.max(params.amount1_sent);
+    println!("amount in {:?}", amount_in);
+    println!("price {:?}", params.price);
 
-        // look at price (TKN/ETH) on each exchange to determine trade direction
-        // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
-        let other_pool = get_other_pair_addresses(
-            client,
-            (params.token_in, params.token_out),
-            params.pool_variant,
-        )
-        .await?[0];
-        if other_pool == H160::zero() {
-            println!("no other pool found");
-            return Ok(U256::zero());
-        }
-        let alt_price = match params.pool_variant {
-            PoolVariant::UniswapV2 => fetch_price_v3(client, other_pool).await?,
-            PoolVariant::UniswapV3 => fetch_price_v2(client, other_pool).await?,
-        };
-        println!("alt price {:?}", alt_price);
-
-        // if the price is denoted in TKN/ETH, we want to buy where the price is highest
-        // if the price is denoted in ETH/TKN, we want to buy where the price is lowest
-        // price is always denoted in tkn1/tkn0
-
-        let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
-            // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
-            if params.price.gt(&alt_price) {
-                println!("buy on this exchange");
-                (params.pool, params.pool_variant, other_pool)
-            } else {
-                println!("buy on other exchange");
-                (
-                    other_pool,
-                    get_other_variant(params.pool_variant),
-                    params.pool,
-                )
-            }
-        } else {
-            // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
-            if params.price.gt(&alt_price) {
-                println!("buy on other exchange");
-                (
-                    other_pool,
-                    get_other_variant(params.pool_variant),
-                    params.pool,
-                )
-            } else {
-                println!("buy on this exchange");
-                (params.pool, params.pool_variant, other_pool)
-            }
-        };
-
-        /* Buy tokens on one exchange. */
-        let res = commit_braindance_swap(
-            &mut evm,
-            start_pool_variant,
-            amount_in,
-            start_pool,
-            params.tokens.weth,
-            params.tokens.token,
-            block_info.base_fee,
-            None,
-        );
-        println!("braindance 1 completed. {:?}", res);
-        let amount_received = res.unwrap();
-        println!("amount received {:?}", amount_received);
-
-        /* Sell them on other exchange. */
-        let res = commit_braindance_swap(
-            &mut evm,
-            get_other_variant(start_pool_variant),
-            amount_received,
-            end_pool,
-            params.tokens.token,
-            params.tokens.weth,
-            block_info.base_fee + (block_info.base_fee * 2500) / 10000,
-            None,
-        );
-        println!("braindance 2 completed. {:?}", res);
-        return Ok(res?);
-    } else {
-        println!("no params found for tx {:?}", user_tx.hash);
+    // look at price (TKN/ETH) on each exchange to determine trade direction
+    // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
+    let other_pool = get_other_pair_addresses(
+        client,
+        (params.token_in, params.token_out),
+        params.pool_variant,
+    )
+    .await?[0];
+    if other_pool == H160::zero() {
+        println!("no other pool found");
+        return Err(anyhow::anyhow!("no other pool found"));
     }
+    // TODO: move cold state calls outside of this function
+    let alt_price = match params.pool_variant {
+        PoolVariant::UniswapV2 => fetch_price_v3(client, other_pool).await?,
+        PoolVariant::UniswapV3 => fetch_price_v2(client, other_pool).await?,
+    };
+    println!("alt price {:?}", alt_price);
 
-    Ok(U256::zero())
+    // if the price is denoted in TKN/ETH, we want to buy where the price is highest
+    // if the price is denoted in ETH/TKN, we want to buy where the price is lowest
+    // price is always denoted in tkn1/tkn0
+
+    let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
+        // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
+        if params.price.gt(&alt_price) {
+            println!("buy on this exchange");
+            (params.pool, params.pool_variant, other_pool)
+        } else {
+            println!("buy on other exchange");
+            (
+                other_pool,
+                get_other_variant(params.pool_variant),
+                params.pool,
+            )
+        }
+    } else {
+        // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
+        if params.price.gt(&alt_price) {
+            println!("buy on other exchange");
+            (
+                other_pool,
+                get_other_variant(params.pool_variant),
+                params.pool,
+            )
+        } else {
+            println!("buy on this exchange");
+            (params.pool, params.pool_variant, other_pool)
+        }
+    };
+
+    /* Buy tokens on one exchange. */
+    let res = commit_braindance_swap(
+        &mut evm,
+        start_pool_variant,
+        amount_in,
+        start_pool,
+        params.tokens.weth,
+        params.tokens.token,
+        block_info.base_fee,
+        None,
+    );
+    println!("braindance 1 completed. {:?}", res);
+    let amount_received = res.unwrap();
+    println!("amount received {:?}", amount_received);
+
+    /* Sell them on other exchange. */
+    let res = commit_braindance_swap(
+        &mut evm,
+        get_other_variant(start_pool_variant),
+        amount_received,
+        end_pool,
+        params.tokens.token,
+        params.tokens.weth,
+        block_info.base_fee + (block_info.base_fee * 2500) / 10000,
+        None,
+    )?;
+    println!("braindance 2 completed. {:?}", res);
+    Ok(res)
 }
 
 fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
