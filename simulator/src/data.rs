@@ -35,7 +35,7 @@ pub struct HistoricalEvent {
     pub hint: HistoricalEventHint,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct CachedEvents {
     pub events: Vec<HistoricalEvent>,
 }

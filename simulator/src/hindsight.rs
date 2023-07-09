@@ -9,7 +9,7 @@ use ethers::types::Transaction;
 #[derive(Debug)]
 pub struct HindsightFactory {}
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
     pub cache_events: CachedEvents,
@@ -51,9 +51,14 @@ impl Hindsight {
         Ok(())
     }
 
-    pub async fn process_orderflow(self) -> anyhow::Result<()> {
+    pub async fn process_orderflow(self, txs: Option<Vec<Transaction>>) -> anyhow::Result<()> {
         println!("processing orderflow");
-        process_orderflow(&self.client, self.cache_txs, self.event_map).await?;
+        let txs = if let Some(txs) = txs {
+            txs
+        } else {
+            self.cache_txs
+        };
+        process_orderflow(&self.client, txs, self.event_map).await?;
         Ok(())
     }
 }
