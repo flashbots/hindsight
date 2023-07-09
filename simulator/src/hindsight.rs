@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     data::{read_events, read_txs, write_tx_data, CachedEvents, HistoricalEvent},
-    sim::processor::{process_orderflow, H256Map},
+    sim::processor::{simulate_backrun, H256Map},
     util::{fetch_txs, get_ws_client, WsClient},
 };
 use ethers::types::Transaction;
@@ -51,14 +51,41 @@ impl Hindsight {
         Ok(())
     }
 
-    pub async fn process_orderflow(self, txs: Option<Vec<Transaction>>) -> anyhow::Result<()> {
+    pub async fn process_orderflow(
+        self,
+        txs: Option<Vec<Transaction>>,
+        batch_size: usize,
+    ) -> anyhow::Result<()> {
         println!("processing orderflow");
         let txs = if let Some(txs) = txs {
             txs
         } else {
             self.cache_txs
         };
-        process_orderflow(&self.client, txs, self.event_map).await?;
+        let mut processed_txs = 0;
+        while processed_txs < txs.len() {
+            let mut handlers = vec![];
+            let txs_batch = txs
+                .iter()
+                .skip(processed_txs)
+                .take(batch_size)
+                .map(|tx| tx.to_owned())
+                .collect::<Vec<Transaction>>();
+            processed_txs += txs_batch.len();
+            println!("processing {} txs", txs_batch.len());
+            for tx in txs_batch {
+                let client = self.client.clone();
+                let event_map = self.event_map.clone();
+                handlers.push(tokio::spawn(async move {
+                    simulate_backrun(&client, tx, event_map).await
+                }));
+            }
+            for handler in handlers {
+                let res = handler.await?;
+                println!("res: {:?}", res);
+            }
+        }
+        // simulate_backrun(&self.client, txs, self.event_map).await?;
         Ok(())
     }
 }

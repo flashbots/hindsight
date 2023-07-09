@@ -23,19 +23,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    // Test {
-    //     /// lists test values
-    //     #[arg(short, long)]
-    //     list: bool,
-    // },
     /// Run arb simulator on one example transaction.
-    Test,
+    Test {
+        /// Simulate more than one tx at a time.
+        #[arg(short, long)]
+        batch_size: Option<usize>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::load()?;
     let cli = Cli::parse();
+
+    if let Some(name) = cli.name {
+        println!("name: {}", name);
+    }
+    if let Some(config) = cli.config.as_deref() {
+        println!("config: {:?}", config.display());
+    }
+
+    println!(
+        "oohh geeez\nauth signer\t{:?}\nrpc url\t\t{:?}",
+        config.auth_signer_key, config.rpc_url_ws
+    );
 
     match cli.debug {
         0 => {
@@ -57,28 +68,14 @@ async fn main() -> anyhow::Result<()> {
     println!("cache txs: {:?}", hindsight.cache_txs.len());
 
     match cli.command {
-        Some(Commands::Test {}) => {
+        Some(Commands::Test { batch_size }) => {
             println!("test command");
-            commands::test::run(hindsight).await?;
+            commands::test::run(hindsight, batch_size).await?;
         }
         None => {
             println!("for usage, run: cargo run -- --help");
         }
     }
-
-    if let Some(name) = cli.name {
-        println!("name: {}", name);
-    }
-    if let Some(config) = cli.config.as_deref() {
-        println!("config: {:?}", config.display());
-    }
-
-    println!(
-        "oohh geeez\nauth signer\t{:?}\nrpc url\t\t{:?}",
-        config.auth_signer_key, config.rpc_url_ws
-    );
-
-    // let mut thread_handlers = vec![];
 
     Ok(())
 }
