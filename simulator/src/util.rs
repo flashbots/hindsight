@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},

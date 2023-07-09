@@ -1,6 +1,6 @@
+use super::Result;
 use std::sync::Arc;
 
-use anyhow::Result;
 use serde::Deserialize;
 use tokio::fs;
 
@@ -57,8 +57,8 @@ pub async fn read_txs(filename: Option<String>) -> Result<Vec<ethers::types::Tra
     read_file(filename).await
 }
 
-pub async fn write_tx_data(filename: Option<String>, data: String) -> Result<()> {
-    let filename = filename.unwrap_or("txs.json".to_string());
+pub async fn write_tx_data(filename: Option<&str>, data: String) -> Result<()> {
+    let filename = filename.unwrap_or("txs.json");
     // open file for writing, then write the data to the file
     fs::write(filename, data).await?;
     Ok(())

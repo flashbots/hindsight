@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};

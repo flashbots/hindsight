@@ -1,6 +1,7 @@
-use anyhow::Result;
+use super::Result;
 use std::env;
 
+#[derive(Clone, Debug)]
 pub struct Config {
     pub rpc_url_ws: String,
     pub auth_signer_key: String,
