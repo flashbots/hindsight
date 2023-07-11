@@ -1,8 +1,8 @@
 use crate::{
     config::Config,
-    data::{read_events, read_txs, write_txs},
+    data::{read_events, read_txs},
     sim::processor::{simulate_backrun, H256Map},
-    util::{fetch_txs, get_ws_client, WsClient},
+    util::{get_ws_client, WsClient},
 };
 use ethers::types::Transaction;
 use mev_share_sse::EventHistory;
@@ -31,13 +31,6 @@ impl HindsightFactory {
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
         let cache_txs = read_txs(None).await?;
-        // let cache_txs = if let Ok(cache_txs) = cache_txs {
-        //     println!("found {} cached txs", cache_txs.len());
-        //     cache_txs
-        // } else {
-        //     println!("Fetching event txs from RPC provider...");
-        //     fetch_and_write_txs(&client.clone(), &cache_events, None).await?
-        // };
 
         Ok(Hindsight {
             client,

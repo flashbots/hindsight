@@ -1,19 +1,12 @@
 // use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use mev_share_sse::{EventClient, EventHistoryParams};
+use mev_share_sse::EventHistoryParams;
 use simulator::{commands, config::Config, hindsight::HindsightFactory};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Optional name to operate on
-    // name: Option<String>,
-
-    /// Sets a custom config file
-    // #[arg(short, long, value_name = "FILE")]
-    // config: Option<PathBuf>,
-
     /// Turn debugging information on
     #[arg(short, long, action = clap::ArgAction::Count)]
     debug: u8,

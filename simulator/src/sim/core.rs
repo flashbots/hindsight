@@ -1,4 +1,5 @@
 use crate::info;
+use crate::sim::evm::{sim_price_v2, sim_price_v3};
 use crate::Result;
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
@@ -16,20 +17,19 @@ use rusty_sando::simulate::{
 use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
-use std::ops::Sub;
 use std::str::FromStr;
 use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
 use crate::util::{
-    fetch_price_v2, fetch_price_v3, get_other_pair_addresses, get_other_variant, get_pair_tokens,
-    get_price_v2, get_price_v3, WsClient,
+    get_other_pair_addresses, get_other_variant, get_pair_tokens, get_price_v2, get_price_v3,
+    WsClient,
 };
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 
-const MAX_DEPTH: usize = 5;
+const MAX_DEPTH: usize = 10;
 // number
-const STEP_INTERVALS: usize = 15;
+const STEP_INTERVALS: usize = 5;
 
 /// Return an evm instance forked from the provided block info and client state
 /// with braindance module initialized.
@@ -364,10 +364,8 @@ pub async fn sim_arb(
     let mut evm = fork_evm(client, block_info).await?;
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
 
-    // TODO: change `amount_in` over many iterations to find optimal trade
-    // let amount_in = params.amount0_sent.max(params.amount1_sent);
     info!("amount in {:?}", amount_in);
-    info!("price {:?}", params.price);
+    info!("pricee {:?}", params.price);
 
     // look at price (TKN/ETH) on each exchange to determine trade direction
     // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
@@ -376,15 +374,18 @@ pub async fn sim_arb(
         (params.token_in, params.token_out),
         params.pool_variant,
     )
-    .await?[0];
+    .await?[0]; // locked in at [0] bc we're only doing V2/V3 arbs for now. // TODO: generalize
     if other_pool == H160::zero() {
         info!("no other pool found");
         return Err(anyhow::anyhow!("no other pool found"));
     }
     // TODO: move cold state calls outside of this function
+    // params.price
     let alt_price = match params.pool_variant {
-        PoolVariant::UniswapV2 => fetch_price_v3(client, other_pool).await?,
-        PoolVariant::UniswapV3 => fetch_price_v2(client, other_pool).await?,
+        PoolVariant::UniswapV2 => {
+            sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm).await?
+        }
+        PoolVariant::UniswapV3 => sim_price_v2(other_pool, &mut evm).await?,
     };
     info!("alt price {:?}", alt_price);
 
