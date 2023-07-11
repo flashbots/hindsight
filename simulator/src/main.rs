@@ -1,6 +1,7 @@
 // use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use mev_share_sse::{EventClient, EventHistoryParams};
 use simulator::{commands, config::Config, hindsight::HindsightFactory};
 
 #[derive(Parser)]
@@ -35,11 +36,16 @@ enum Commands {
         block_start: Option<u64>,
         #[arg(short, long)]
         timestamp_start: Option<u64>,
+        #[arg(long)]
+        block_end: Option<u64>,
+        #[arg(long)]
+        timestamp_end: Option<u64>,
     },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
     let config = Config::load()?;
     let cli = Cli::parse();
 
@@ -81,9 +87,19 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Scan {
             block_start,
             timestamp_start,
+            block_end,
+            timestamp_end,
         }) => {
             println!("scan command");
-            commands::scan::run(block_start, timestamp_start).await?;
+            let params = EventHistoryParams {
+                block_start,
+                block_end,
+                timestamp_start,
+                timestamp_end,
+                limit: None,
+                offset: None,
+            };
+            commands::scan::run(params, None).await?;
         }
         None => {
             println!("for usage, run: cargo run -- --help");

@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    data::{read_events, read_txs, write_tx_data},
+    data::{read_events, read_txs, write_txs},
     sim::processor::{simulate_backrun, H256Map},
     util::{fetch_txs, get_ws_client, WsClient},
 };
@@ -23,7 +23,7 @@ impl HindsightFactory {
         Self {}
     }
     pub async fn init(self, config: Config) -> anyhow::Result<Hindsight> {
-        let client = get_ws_client(config.rpc_url_ws.to_owned()).await?;
+        let client = get_ws_client(Some(config.rpc_url_ws.to_owned())).await?;
         let cache_events = read_events(None).await?;
         println!("cache events: {:?}", cache_events.len());
         let event_map = cache_events
@@ -31,9 +31,13 @@ impl HindsightFactory {
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
         let cache_txs = read_txs(None).await?;
-        if cache_txs.len() == 0 {
-            println!("no txs found in cache, quitting");
-        }
+        // let cache_txs = if let Ok(cache_txs) = cache_txs {
+        //     println!("found {} cached txs", cache_txs.len());
+        //     cache_txs
+        // } else {
+        //     println!("Fetching event txs from RPC provider...");
+        //     fetch_and_write_txs(&client.clone(), &cache_events, None).await?
+        // };
 
         Ok(Hindsight {
             client,
@@ -45,13 +49,6 @@ impl HindsightFactory {
 }
 
 impl Hindsight {
-    pub async fn fetch_txs(self, filename: Option<&str>) -> anyhow::Result<()> {
-        println!("fetching txs");
-        let cached_txs = fetch_txs(&self.client, self.cache_events).await?;
-        write_tx_data(filename, serde_json::to_string_pretty(&cached_txs)?).await?;
-        Ok(())
-    }
-
     pub async fn process_orderflow(
         self,
         txs: Option<Vec<Transaction>>,

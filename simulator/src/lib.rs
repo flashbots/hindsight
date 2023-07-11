@@ -7,3 +7,4 @@ pub mod sim;
 pub mod util;
 
 pub use anyhow::Result;
+pub use tracing::info;

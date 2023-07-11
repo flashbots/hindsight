@@ -1,3 +1,4 @@
+use crate::info;
 use crate::Result;
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
@@ -15,7 +16,9 @@ use rusty_sando::simulate::{
 use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
+use std::ops::Sub;
 use std::str::FromStr;
+use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
 use crate::util::{
@@ -91,7 +94,7 @@ async fn derive_trade_params(
     ];
 
     // 0. get pool address from event, relying on mev-share hints
-    // println!("hint logs {:?}", event.hint.logs);
+    // info!("hint logs {:?}", event.hint.logs);
     let swap_log = event
         .hint
         .logs
@@ -100,10 +103,10 @@ async fn derive_trade_params(
         .unwrap(); // TODO: handle unwrap
     let pool_address = swap_log.address;
     let swap_topic = swap_log.topics[0];
-    println!("pool address: {:?}", pool_address);
+    info!("pool address: {:?}", pool_address);
 
     // 1. derive pool variant from event log topics
-    println!("swap topic: {:?}", swap_topic);
+    info!("swap topic: {:?}", swap_topic);
     let univ3 =
         H256::from_str("0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67")
             .unwrap();
@@ -112,11 +115,11 @@ async fn derive_trade_params(
     } else {
         PoolVariant::UniswapV2 // assume events are pre-screened, so all non-V3 events are V2
     };
-    println!("pool variant: {:?}", pool_variant);
+    info!("pool variant: {:?}", pool_variant);
 
     // 2. get token addrs from pool address
     let (token0, token1) = get_pair_tokens(client, pool_address).await?;
-    println!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
+    info!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
     let token0_is_weth = token0 == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse::<H160>()?;
 
     // 3. derive trade direction from (full) tx logs
@@ -125,7 +128,7 @@ async fn derive_trade_params(
         .logs
         .iter()
         .find(|log| log.topics.contains(&swap_topic));
-    // println!("swap_log: {:?}", swap_log);
+    // info!("swap_log: {:?}", swap_log);
 
     let swap_log = swap_log.ok_or(anyhow::format_err!(
         "no swap logs found for tx {:?}",
@@ -138,7 +141,7 @@ async fn derive_trade_params(
             == H256::from_str("0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1")
                 .unwrap()
     });
-    // println!("*** sync log: {:?}", sync_log);
+    // info!("*** sync log: {:?}", sync_log);
 
     let (amount0_sent, amount1_sent, new_price) = match pool_variant {
         PoolVariant::UniswapV3 => {
@@ -147,12 +150,12 @@ async fn derive_trade_params(
             let sqrt_price = U256::from_big_endian(&swap_log.data[64..96]); // u160
             let liquidity = U256::from_big_endian(&swap_log.data[96..128]); // u128
                                                                             // let tick = I256::from_raw(U256::from_big_endian(&swap_log.data[128..160])); // i24
-            println!("user trade data ===========================");
-            println!("amount0\t\t{:?}", amount0);
-            println!("amount1\t\t{:?}", amount1);
-            // println!("sqrtPriceX96\t{:?}", sqrt_price);
-            // println!("liquidity\t{:?}", liquidity);
-            // println!("tick\t\t{:?}", tick);
+            info!("user trade data ===========================");
+            info!("amount0\t\t{:?}", amount0);
+            info!("amount1\t\t{:?}", amount1);
+            // info!("sqrtPriceX96\t{:?}", sqrt_price);
+            // info!("liquidity\t{:?}", liquidity);
+            // info!("tick\t\t{:?}", tick);
             let new_price = get_price_v3(liquidity, sqrt_price, U256::from(18))?;
 
             (
@@ -182,8 +185,8 @@ async fn derive_trade_params(
                 let reserve0 = U256::from_big_endian(&sync_log.data[0..32]);
                 let reserve1 = U256::from_big_endian(&sync_log.data[32..64]);
                 // find price of TKN/ETH -- need to find which token is ETH; 0 or 1?
-                println!("reserve0\t{:?}", reserve0);
-                println!("reserve1\t{:?}", reserve1);
+                info!("reserve0\t{:?}", reserve0);
+                info!("reserve1\t{:?}", reserve1);
                 price = get_price_v2(reserve0, reserve1, U256::from(18))?;
             }
             (amount0_out, amount1_out, price)
@@ -192,7 +195,7 @@ async fn derive_trade_params(
 
     let swap_0_for_1 = amount0_sent.gt(&0.into());
 
-    println!(
+    info!(
         "***\nuser swaps {} for {}\n***",
         if swap_0_for_1 { token0 } else { token1 },
         if swap_0_for_1 { token1 } else { token0 }
@@ -225,7 +228,7 @@ async fn step_arb(
     intervals: usize,
     depth: Option<usize>,
 ) -> Result<(U256, U256)> {
-    println!(
+    info!(
         "************************** step_arb
     depth:\t{:?}
     range:\t{:?}
@@ -269,9 +272,18 @@ async fn step_arb(
             });
 
             // refine params and recurse
+            let r_amount: rU256 = best_amount_in_out.0.into();
             let range = [
-                best_amount_in_out.0 - band_width,
-                best_amount_in_out.0 + band_width,
+                if best_amount_in_out.0 < band_width {
+                    0.into()
+                } else {
+                    best_amount_in_out.0 - band_width
+                },
+                if RUINT_MAX_U256 - r_amount < band_width.into() {
+                    RUINT_MAX_U256.into()
+                } else {
+                    best_amount_in_out.0 + band_width
+                },
             ];
             return step_arb(
                 client,
@@ -337,7 +349,7 @@ pub async fn find_optimal_backrun_amount_in_out(
         None,
     )
     .await?;
-    println!("res: {:?}", res);
+    info!("res: {:?}", res);
     Ok(res)
 }
 
@@ -354,8 +366,8 @@ pub async fn sim_arb(
 
     // TODO: change `amount_in` over many iterations to find optimal trade
     // let amount_in = params.amount0_sent.max(params.amount1_sent);
-    println!("amount in {:?}", amount_in);
-    println!("price {:?}", params.price);
+    info!("amount in {:?}", amount_in);
+    info!("price {:?}", params.price);
 
     // look at price (TKN/ETH) on each exchange to determine trade direction
     // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
@@ -366,7 +378,7 @@ pub async fn sim_arb(
     )
     .await?[0];
     if other_pool == H160::zero() {
-        println!("no other pool found");
+        info!("no other pool found");
         return Err(anyhow::anyhow!("no other pool found"));
     }
     // TODO: move cold state calls outside of this function
@@ -374,7 +386,7 @@ pub async fn sim_arb(
         PoolVariant::UniswapV2 => fetch_price_v3(client, other_pool).await?,
         PoolVariant::UniswapV3 => fetch_price_v2(client, other_pool).await?,
     };
-    println!("alt price {:?}", alt_price);
+    info!("alt price {:?}", alt_price);
 
     // if the price is denoted in TKN/ETH, we want to buy where the price is highest
     // if the price is denoted in ETH/TKN, we want to buy where the price is lowest
@@ -383,10 +395,10 @@ pub async fn sim_arb(
     let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
         // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
         if params.price.gt(&alt_price) {
-            println!("buy on this exchange");
+            info!("buy on this exchange");
             (params.pool, params.pool_variant, other_pool)
         } else {
-            println!("buy on other exchange");
+            info!("buy on other exchange");
             (
                 other_pool,
                 get_other_variant(params.pool_variant),
@@ -396,14 +408,14 @@ pub async fn sim_arb(
     } else {
         // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
         if params.price.gt(&alt_price) {
-            println!("buy on other exchange");
+            info!("buy on other exchange");
             (
                 other_pool,
                 get_other_variant(params.pool_variant),
                 params.pool,
             )
         } else {
-            println!("buy on this exchange");
+            info!("buy on this exchange");
             (params.pool, params.pool_variant, other_pool)
         }
     };
@@ -419,9 +431,9 @@ pub async fn sim_arb(
         block_info.base_fee,
         None,
     );
-    println!("braindance 1 completed. {:?}", res);
-    let amount_received = res.unwrap();
-    println!("amount received {:?}", amount_received);
+    info!("braindance 1 completed. {:?}", res);
+    let amount_received = res.unwrap_or(0.into());
+    info!("amount received {:?}", amount_received);
 
     /* Sell them on other exchange. */
     let res = commit_braindance_swap(
@@ -434,7 +446,7 @@ pub async fn sim_arb(
         block_info.base_fee + (block_info.base_fee * 2500) / 10000,
         None,
     )?;
-    println!("braindance 2 completed. {:?}", res);
+    info!("braindance 2 completed. {:?}", res);
     Ok((amount_in, res))
 }
 
@@ -489,7 +501,7 @@ pub async fn sim_bundle(
         if let Ok(res) = res {
             results.push(res.to_owned());
         } else {
-            println!("failed to simulate transaction: {:?}", res);
+            info!("failed to simulate transaction: {:?}", res);
         }
     }
 
@@ -577,7 +589,7 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_tx() -> Result<()> {
-        let client = get_ws_client("ws://localhost:8545".to_owned()).await?;
+        let client = get_ws_client(Some("ws://localhost:8545".to_owned())).await?;
         let block_num = client.get_block_number().await?;
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
         let block = client.get_block(block_num).await?.unwrap();
@@ -592,13 +604,13 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_swaps() -> Result<()> {
-        let client = get_ws_client("ws://localhost:8545".to_owned()).await?;
+        let client = get_ws_client(Some("ws://localhost:8545".to_owned())).await?;
         let block_num = client.get_block_number().await?;
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB
         let pool = get_other_pair_addresses(&client, (weth, tkn), PoolVariant::UniswapV3).await?[0];
-        println!("starting balance: {:?}", braindance_starting_balance());
+        info!("starting balance: {:?}", braindance_starting_balance());
         // buy 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
@@ -610,7 +622,7 @@ mod test {
             U256::from(1000000000) * 420,
             None,
         )?;
-        println!("res: {:?}", res);
+        info!("res: {:?}", res);
         // sell 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
@@ -622,7 +634,7 @@ mod test {
             U256::from(1000000000) * 420,
             None,
         )?;
-        println!("res: {:?}", res);
+        info!("res: {:?}", res);
         Ok(())
     }
 }

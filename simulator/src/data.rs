@@ -1,51 +1,26 @@
+use crate::info;
 use crate::Result;
 use std::sync::Arc;
 
+use ethers::types::Transaction;
 use mev_share_sse::EventHistory;
 // use serde::Deserialize;
 use tokio::fs;
 
-//*******************************************//
-// TODO: replace serde types w/ mev-share-rs //
-//*******************************************//
-
-// #[derive(Deserialize, Debug, Clone)]
-// struct MevShareTx {
-//     pub to: Option<ethers::types::Address>,
-//     #[serde(rename(deserialize = "callData"))]
-//     pub calldata: Option<ethers::types::Bytes>,
-//     #[serde(rename(deserialize = "functionSelector"))]
-//     pub function_selector: Option<ethers::types::Bytes>,
-// }
-
-// #[derive(Deserialize, Debug, Clone)]
-// struct HistoricalEventHint {
-//     pub txs: Option<Vec<MevShareTx>>,
-//     pub hash: ethers::types::H256,
-//     pub logs: Vec<ethers::types::Log>,
-//     #[serde(rename(deserialize = "gasUsed"))]
-//     pub gas_used: u64,
-//     #[serde(rename(deserialize = "mevGasPrice"))]
-//     pub mev_gas_price: u64,
-// }
-
-// #[derive(Deserialize, Debug, Clone)]
-// struct HistoricalEvent {
-//     pub block: u64,
-//     pub timestamp: u64,
-//     pub hint: HistoricalEventHint,
-// }
-
-// #[derive(Clone, Deserialize, Debug)]
-// struct CachedEvents {
-//     pub events: Vec<HistoricalEvent>,
-// }
+const DEFAULT_FILENAME: &'static str = "events.json";
 
 async fn read_file<'de, T: serde::de::DeserializeOwned>(filename: String) -> Result<T> {
     let raw_data = fs::read_to_string(filename).await?;
     let s = Arc::new(raw_data.as_str());
     let data: T = serde_json::from_str(&s)?;
     Ok(data)
+}
+
+pub async fn write_events(events: &Vec<EventHistory>, filename: Option<String>) -> Result<()> {
+    let filename = filename.unwrap_or(DEFAULT_FILENAME.to_string());
+    fs::write(filename.to_owned(), serde_json::to_string_pretty(&events)?).await?;
+    info!("Wrote {} events to {}", events.len(), filename);
+    Ok(())
 }
 
 pub async fn read_events(filename: Option<String>) -> Result<Vec<EventHistory>> {
@@ -63,12 +38,21 @@ pub async fn read_events(filename: Option<String>) -> Result<Vec<EventHistory>> 
 
 pub async fn read_txs(filename: Option<String>) -> Result<Vec<ethers::types::Transaction>> {
     let filename = filename.unwrap_or("txs.json".to_string());
-    read_file(filename).await
+    let res = read_file(filename.to_owned()).await;
+    if let Err(e) = res {
+        return Err(anyhow::format_err!(
+            "failed to read txs from file {}: {:?}\nPlease run the `scan` command.",
+            filename,
+            e
+        ));
+    }
+    res
 }
 
-pub async fn write_tx_data(filename: Option<&str>, data: String) -> Result<()> {
-    let filename = filename.unwrap_or("txs.json");
+pub async fn write_txs(filename: Option<String>, txs: &Vec<Transaction>) -> Result<()> {
+    let filename = filename.unwrap_or("txs.json".to_owned());
     // open file for writing, then write the data to the file
-    fs::write(filename, data).await?;
+    fs::write(filename.to_owned(), serde_json::to_string_pretty(txs)?).await?;
+    info!("Wrote {} txs to {}", txs.len(), filename);
     Ok(())
 }

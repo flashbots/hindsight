@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{config::Config, Result};
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
@@ -13,15 +13,20 @@ use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
 pub type WsClient = Arc<Provider<Ws>>;
 
-pub async fn get_ws_client(rpc_url: String) -> Result<WsClient> {
+pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {
+    let rpc_url = if let Some(rpc_url) = rpc_url {
+        rpc_url
+    } else {
+        Config::load()?.rpc_url_ws
+    };
     let provider = Provider::<Ws>::connect(rpc_url).await?;
     Ok(Arc::new(provider))
 }
 
-pub async fn fetch_txs(client: &WsClient, events: Vec<EventHistory>) -> Result<Vec<Transaction>> {
+pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<Vec<Transaction>> {
     let tx_hashes: Vec<H256> = events
         .into_iter()
-        .map(|e: EventHistory| e.hint.hash)
+        .map(|e: &EventHistory| e.hint.hash)
         .collect();
     let mut full_txs = vec![];
     let mut handles: Vec<_> = vec![];
