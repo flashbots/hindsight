@@ -1,10 +1,11 @@
 use crate::{
     config::Config,
-    data::{read_events, read_txs, write_tx_data, CachedEvents, HistoricalEvent},
+    data::{read_events, read_txs, write_tx_data},
     sim::processor::{simulate_backrun, H256Map},
     util::{fetch_txs, get_ws_client, WsClient},
 };
 use ethers::types::Transaction;
+use mev_share_sse::EventHistory;
 
 #[derive(Debug)]
 pub struct HindsightFactory {}
@@ -12,9 +13,9 @@ pub struct HindsightFactory {}
 #[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
-    pub cache_events: CachedEvents,
+    pub cache_events: Vec<EventHistory>,
     pub cache_txs: Vec<Transaction>,
-    pub event_map: H256Map<HistoricalEvent>,
+    pub event_map: H256Map<EventHistory>,
 }
 
 impl HindsightFactory {
@@ -24,11 +25,11 @@ impl HindsightFactory {
     pub async fn init(self, config: Config) -> anyhow::Result<Hindsight> {
         let client = get_ws_client(config.rpc_url_ws.to_owned()).await?;
         let cache_events = read_events(None).await?;
+        println!("cache events: {:?}", cache_events.len());
         let event_map = cache_events
-            .events
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
-            .collect::<H256Map<HistoricalEvent>>();
+            .collect::<H256Map<EventHistory>>();
         let cache_txs = read_txs(None).await?;
         if cache_txs.len() == 0 {
             println!("no txs found in cache, quitting");
@@ -46,7 +47,7 @@ impl HindsightFactory {
 impl Hindsight {
     pub async fn fetch_txs(self, filename: Option<&str>) -> anyhow::Result<()> {
         println!("fetching txs");
-        let cached_txs = fetch_txs(&self.client, self.cache_events.events).await?;
+        let cached_txs = fetch_txs(&self.client, self.cache_events).await?;
         write_tx_data(filename, serde_json::to_string_pretty(&cached_txs)?).await?;
         Ok(())
     }

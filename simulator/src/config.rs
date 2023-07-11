@@ -1,4 +1,4 @@
-use super::Result;
+use crate::Result;
 use std::env;
 
 #[derive(Clone, Debug)]

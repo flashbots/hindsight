@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+// use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use simulator::{commands, config::Config, hindsight::HindsightFactory};
@@ -7,11 +7,11 @@ use simulator::{commands, config::Config, hindsight::HindsightFactory};
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Optional name to operate on
-    name: Option<String>,
+    // name: Option<String>,
 
     /// Sets a custom config file
-    #[arg(short, long, value_name = "FILE")]
-    config: Option<PathBuf>,
+    // #[arg(short, long, value_name = "FILE")]
+    // config: Option<PathBuf>,
 
     /// Turn debugging information on
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -29,6 +29,13 @@ enum Commands {
         #[arg(short, long)]
         batch_size: Option<usize>,
     },
+    Scan {
+        /// Scan events from MEV-Share event stream.
+        #[arg(short, long)]
+        block_start: Option<u64>,
+        #[arg(short, long)]
+        timestamp_start: Option<u64>,
+    },
 }
 
 #[tokio::main]
@@ -36,12 +43,12 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load()?;
     let cli = Cli::parse();
 
-    if let Some(name) = cli.name {
-        println!("name: {}", name);
-    }
-    if let Some(config) = cli.config.as_deref() {
-        println!("config: {:?}", config.display());
-    }
+    // if let Some(name) = cli.name {
+    //     println!("name: {}", name);
+    // }
+    // if let Some(config) = cli.config.as_deref() {
+    //     println!("config: {:?}", config.display());
+    // }
 
     println!(
         "oohh geeez\nauth signer\t{:?}\nrpc url\t\t{:?}",
@@ -63,14 +70,20 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let hindsight = HindsightFactory::new().init(config.to_owned()).await?;
-    println!("cache events: {:?}", hindsight.event_map.len());
-    println!("cache txs: {:?}", hindsight.cache_txs.len());
-
     match cli.command {
         Some(Commands::Test { batch_size }) => {
             println!("test command");
+            let hindsight = HindsightFactory::new().init(config.to_owned()).await?;
+            println!("cache events: {:?}", hindsight.event_map.len());
+            println!("cache txs: {:?}", hindsight.cache_txs.len());
             commands::test::run(hindsight, batch_size).await?;
+        }
+        Some(Commands::Scan {
+            block_start,
+            timestamp_start,
+        }) => {
+            println!("scan command");
+            commands::scan::run(block_start, timestamp_start).await?;
         }
         None => {
             println!("for usage, run: cargo run -- --help");

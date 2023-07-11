@@ -1,9 +1,10 @@
-use super::Result;
+use crate::Result;
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 
 use futures::future;
+use mev_share_sse::EventHistory;
 use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
@@ -16,7 +17,7 @@ use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use crate::data::HistoricalEvent;
+// use crate::data::HistoricalEvent;
 use crate::util::{
     fetch_price_v2, fetch_price_v3, get_other_pair_addresses, get_other_variant, get_pair_tokens,
     get_price_v2, get_price_v3, WsClient,
@@ -76,7 +77,7 @@ pub struct TokenPair {
 async fn derive_trade_params(
     client: &WsClient,
     tx: Transaction,
-    event: &HistoricalEvent,
+    event: &EventHistory,
 ) -> Result<Option<UserTradeParams>> {
     let uniswap_topics = vec![
         // univ3
@@ -303,7 +304,7 @@ async fn step_arb(
 pub async fn find_optimal_backrun_amount_in_out(
     client: &WsClient,
     user_tx: Transaction,
-    event: &HistoricalEvent,
+    event: &EventHistory,
     block_info: &BlockInfo,
 ) -> Result<(U256, U256)> {
     let params = derive_trade_params(client, user_tx.to_owned(), event).await?;

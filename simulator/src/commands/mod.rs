@@ -1,2 +1,2 @@
+pub mod scan;
 pub mod test;
-pub use super::Result;

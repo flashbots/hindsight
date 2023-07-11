@@ -4,18 +4,19 @@ use ethers::{
     providers::Middleware,
     types::{Transaction, H256, U256},
 };
+use mev_share_sse::EventHistory;
 use rusty_sando::{simulate::braindance_starting_balance, types::BlockInfo};
 
-use crate::{data::HistoricalEvent, sim::core::find_optimal_backrun_amount_in_out, util::WsClient};
+use crate::{sim::core::find_optimal_backrun_amount_in_out, util::WsClient};
 
-use super::Result;
+use crate::Result;
 
 pub type H256Map<T> = HashMap<H256, T>;
 
 pub async fn simulate_backrun(
     client: &WsClient,
     tx: Transaction,
-    event_map: H256Map<HistoricalEvent>,
+    event_map: H256Map<EventHistory>,
 ) -> Result<Option<U256>> {
     let event = event_map.get(&tx.hash).unwrap().to_owned();
     // thread_handlers.push(

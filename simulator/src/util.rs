@@ -1,4 +1,4 @@
-use super::Result;
+use crate::Result;
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
@@ -6,11 +6,10 @@ use ethers::{
     types::{transaction::eip2718::TypedTransaction, Address, Transaction, H256, U256},
 };
 use futures::future;
+use mev_share_sse::EventHistory;
 use rusty_sando::{prelude::PoolVariant, types::BlockInfo};
 use std::sync::Arc;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
-
-use crate::data::HistoricalEvent;
 
 pub type WsClient = Arc<Provider<Ws>>;
 
@@ -19,13 +18,10 @@ pub async fn get_ws_client(rpc_url: String) -> Result<WsClient> {
     Ok(Arc::new(provider))
 }
 
-pub async fn fetch_txs(
-    client: &WsClient,
-    events: Vec<HistoricalEvent>,
-) -> Result<Vec<Transaction>> {
+pub async fn fetch_txs(client: &WsClient, events: Vec<EventHistory>) -> Result<Vec<Transaction>> {
     let tx_hashes: Vec<H256> = events
         .into_iter()
-        .map(|e: HistoricalEvent| e.hint.hash)
+        .map(|e: EventHistory| e.hint.hash)
         .collect();
     let mut full_txs = vec![];
     let mut handles: Vec<_> = vec![];
