@@ -39,7 +39,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let config = Config::load()?;
+    let config = Config::default();
     let cli = Cli::parse();
 
     // if let Some(name) = cli.name {
@@ -71,7 +71,6 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Test { batch_size }) => {
-            println!("test command");
             let hindsight = HindsightFactory::new().init(config.to_owned()).await?;
             println!("cache events: {:?}", hindsight.event_map.len());
             println!("cache txs: {:?}", hindsight.cache_txs.len());

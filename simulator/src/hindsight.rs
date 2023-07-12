@@ -25,7 +25,6 @@ impl HindsightFactory {
     pub async fn init(self, config: Config) -> anyhow::Result<Hindsight> {
         let client = get_ws_client(Some(config.rpc_url_ws.to_owned())).await?;
         let cache_events = read_events(None).await?;
-        println!("cache events: {:?}", cache_events.len());
         let event_map = cache_events
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
@@ -76,7 +75,6 @@ impl Hindsight {
                 println!("res: {:?}", res);
             }
         }
-        // simulate_backrun(&self.client, txs, self.event_map).await?;
         Ok(())
     }
 }

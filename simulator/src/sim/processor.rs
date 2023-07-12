@@ -37,12 +37,18 @@ pub async fn simulate_backrun(
             base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
         };
         let res = find_optimal_backrun_amount_in_out(&client, tx, &event, &block_info).await?;
-        if res.1 > braindance_starting_balance() {
-            println!("PROFIT: input={:?}\toutput={:?}", res.0, res.1);
-            return Ok(Some(res.1));
-        } else {
-            return Ok(None);
+        let mut profit = U256::from(0);
+        for res in res {
+            if res.balance_end > braindance_starting_balance() {
+                println!(
+                    "PROFIT: input={:?}\tend_balance={:?}",
+                    res.amount_in, res.balance_end
+                );
+                // return Ok(Some(res.1));
+                profit += res.balance_end - braindance_starting_balance();
+            }
         }
+        Ok(Some(profit))
     } else {
         println!("sim block doesn't exist???");
         return Ok(None);

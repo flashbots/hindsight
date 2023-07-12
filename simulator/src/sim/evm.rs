@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{ops::Mul, str::FromStr};
 
 use crate::{util::get_price_v3, Result};
 use ethers::{
@@ -61,12 +61,20 @@ pub async fn sim_price_v3(
     get_price_v3(liquidity, sqrt_price, token0_decimals)
 }
 
-pub async fn sim_price_v2(target_pool: Address, evm: &mut EVM<ForkDB>) -> Result<U256> {
+pub async fn sim_price_v2(
+    target_pool: Address,
+    input_token: Address,
+    output_token: Address,
+    evm: &mut EVM<ForkDB>,
+) -> Result<U256> {
     // get reserves
     evm.env.tx.transact_to = TransactTo::Call(target_pool.0.into());
     evm.env.tx.caller = get_eth_dev().0.into();
     evm.env.tx.value = rU256::ZERO;
     evm.env.tx.data = Bytes::from_str("0x0902f1ac").unwrap().0; // getReserves()
+    evm.env.tx.gas_price = rU256::from(100_000_000_000_i64);
+    evm.env.tx.gas_limit = 900_000_u64;
+    evm.env.tx.gas_priority_fee = Some(rU256::from(13_000_000_000_u64));
     let result = match evm.transact_ref() {
         Ok(result) => result.result,
         Err(e) => return Err(anyhow::format_err!(SimulationError::EvmError(e))),
@@ -97,17 +105,34 @@ pub async fn sim_price_v2(target_pool: Address, evm: &mut EVM<ForkDB>) -> Result
     let reserves_0 = tokens[0].clone().into_uint().unwrap();
     let reserves_1 = tokens[1].clone().into_uint().unwrap();
 
+    let token0 = match input_token < output_token {
+        true => input_token,
+        false => output_token,
+    };
+    let output = call_function(evm, "0x313ce567", token0)?; // decimals()
+    let token0_decimals_tokens = abi::decode(&vec![ParamType::Uint(8)], &output)?;
+    let token0_decimals = token0_decimals_tokens[0]
+        .clone()
+        .into_uint()
+        .expect("token0_decimals");
+
+    println!("token0_decimals: {}", token0_decimals);
+    println!("reserves_0: {}", reserves_0);
+    println!("reserves_1: {}", reserves_1);
+
     Ok(reserves_1
+        .mul(U256::from(10).pow(token0_decimals))
         .checked_div(reserves_0)
         .ok_or_else(|| anyhow::format_err!("failed to divide reserves"))?)
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
+    println!("calling method {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
         from: Some(get_eth_dev()),
         to: Some(contract.into()),
-        gas: None,
-        gas_price: None,
+        gas: Some(U256::from(900_000_u64)),
+        gas_price: Some(U256::from(1000_000_000_000_u64)),
         value: None,
         data: Some(Bytes::from_str(method)?),
         nonce: None,
@@ -121,6 +146,9 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
     evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap().as_address().unwrap().0));
     evm.env.tx.data = tx.data.to_owned().unwrap().0;
     evm.env.tx.value = tx.value.unwrap_or_default().into();
+    evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+    evm.env.tx.gas_limit = tx.gas.unwrap_or_default().as_u64();
+    // evm.env.tx.gas_priority_fee = tx.gas_priority_fee.map(|x| x.into());
     let res = match evm.transact_ref() {
         Ok(res) => res.result,
         Err(err) => {
@@ -140,4 +168,47 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
         }
     };
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::{
+        sim::core::fork_evm,
+        util::{get_block_info, get_ws_client},
+        Result,
+    };
+    use ethers::{
+        providers::Middleware,
+        types::{Address, U256},
+    };
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_sim_price_v2() -> Result<()> {
+        let client = get_ws_client(None).await?;
+        let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
+        let mut evm = fork_evm(&client, &block_info).await?;
+        let target_pool = Address::from_str("0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f")?; // UniV2 SHIB/WETH
+        let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
+        let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
+        let price = super::sim_price_v2(target_pool, token_in, token_out, &mut evm).await?;
+        println!("price: {}", price);
+        assert_ne!(price, U256::from(0));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_sim_price_v3() -> Result<()> {
+        let client = get_ws_client(None).await?;
+        let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
+        let mut evm = fork_evm(&client, &block_info).await?;
+        let target_pool = Address::from_str("0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec")?; // UniV3 SHIB/WETH (fee=3000)
+        let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
+        let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
+        let price = super::sim_price_v3(target_pool, token_in, token_out, &mut evm).await?;
+        println!("price: {}", price);
+        assert_ne!(price, U256::from(0));
+        Ok(())
+    }
 }

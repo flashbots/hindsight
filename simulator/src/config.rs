@@ -1,4 +1,3 @@
-use crate::Result;
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -7,13 +6,14 @@ pub struct Config {
     pub auth_signer_key: String,
 }
 
-impl Config {
-    pub fn load() -> Result<Config> {
+impl Default for Config {
+    fn default() -> Config {
         dotenvy::dotenv()
-            .map_err(|err| anyhow::anyhow!("Failed to load .env file. Error: {}", err))?;
-        Ok(Config {
-            rpc_url_ws: env::var("RPC_URL_WS")?,
-            auth_signer_key: env::var("AUTH_SIGNER_KEY")?,
-        })
+            .map_err(|err| anyhow::anyhow!("Failed to load .env file. Error: {}", err))
+            .unwrap();
+        Config {
+            rpc_url_ws: env::var("RPC_URL_WS").expect("RPC_URL_WS must be set"),
+            auth_signer_key: env::var("AUTH_SIGNER_KEY").expect("AUTH_SIGNER_KEY must be set"),
+        }
     }
 }

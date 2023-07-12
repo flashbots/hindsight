@@ -17,7 +17,7 @@ pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {
     let rpc_url = if let Some(rpc_url) = rpc_url {
         rpc_url
     } else {
-        Config::load()?.rpc_url_ws
+        Config::default().rpc_url_ws
     };
     let provider = Provider::<Ws>::connect(rpc_url).await?;
     Ok(Arc::new(provider))
@@ -86,21 +86,39 @@ pub async fn get_block_info(client: &WsClient, block_num: u64) -> Result<BlockIn
     })
 }
 
-async fn get_v2_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Result<Address> {
+async fn get_v2_pairs(client: &WsClient, pair_tokens: (Address, Address)) -> Result<Vec<Address>> {
     abigen!(
         IUniswapV2Factory,
         r#"[
             function getPair(address tokenA, address tokenB) external view returns (address pair)
         ]"#
     );
-    let contract = IUniswapV2Factory::new(
+    let uni_factory = IUniswapV2Factory::new(
         "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f".parse::<H160>()?,
         client.clone(),
     );
-    Ok(contract
+    let sushi_factory = IUniswapV2Factory::new(
+        "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac".parse::<H160>()?,
+        client.clone(),
+    );
+
+    let uni_pair: Result<Address, _> = uni_factory
         .get_pair(pair_tokens.0, pair_tokens.1)
         .call()
-        .await?)
+        .await;
+    let sushi_pair: Result<Address, _> = sushi_factory
+        .get_pair(pair_tokens.0, pair_tokens.1)
+        .call()
+        .await;
+    let mut pairs = vec![];
+    if let Ok(uni_pair) = uni_pair {
+        pairs.push(uni_pair);
+    }
+    if let Ok(sushi_pair) = sushi_pair {
+        pairs.push(sushi_pair);
+    }
+
+    Ok(pairs)
 }
 
 async fn get_v3_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Result<Address> {
@@ -132,7 +150,7 @@ pub async fn get_other_pair_addresses(
             other_pairs.push(get_v3_pair(client, pair_tokens).await?);
         }
         PoolVariant::UniswapV3 => {
-            other_pairs.push(get_v2_pair(client, pair_tokens).await?);
+            other_pairs.append(&mut get_v2_pairs(client, pair_tokens).await?);
         }
     };
     Ok(other_pairs)
