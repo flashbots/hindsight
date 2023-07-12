@@ -230,6 +230,7 @@ async fn derive_trade_params(
     Ok(trade_params)
 }
 
+/// Recursively finds the best possible arbitrage trade for a given set of params.
 #[async_recursion]
 async fn step_arb(
     client: &WsClient,
@@ -274,11 +275,32 @@ async fn step_arb(
             }
             let revenues = future::join_all(handles).await;
             for result in revenues {
-                let (amount_in, balance_out) = result??;
-                println!("amount_in={:?} amount_out={:?}", amount_in, balance_out);
-                if balance_out > best_amount_in_out.1 {
-                    best_amount_in_out = (amount_in, balance_out);
+                // let result = result?;
+                if let Ok(result) = result {
+                    info!("*** result_outer {:?}", result);
+                    if let Ok(result) = result {
+                        let (amount_in, balance_out) = result;
+                        if balance_out > best_amount_in_out.1 {
+                            best_amount_in_out = (amount_in, balance_out);
+                            info!(
+                                "new best (amount_in, balance_out): {:?}",
+                                best_amount_in_out
+                            );
+                        }
+                    } else {
+                        if result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("no other pool found")
+                        // TODO: use real error types, not this garbage
+                        {
+                            return Err(anyhow::anyhow!("no profit possible"));
+                        }
+                    }
+                } else {
+                    return Ok((0.into(), 0.into()));
                 }
+                // println!("amount_in={:?} amount_out={:?}", amount_in, balance_out);
             }
 
             // refine params and recurse
@@ -367,7 +389,7 @@ pub async fn find_optimal_backrun_amount_in_out(
             None,
         )
         .await;
-        info!("res: {:?}", res);
+        info!("*** res_top: {:?}", res);
         if let Ok(res) = res {
             results.push(SimArbResult {
                 amount_in: res.0,
@@ -392,7 +414,7 @@ pub async fn sim_arb(
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
 
     info!("amount in {:?}", amount_in);
-    info!("pricee {:?}", params.price);
+    info!("price {:?}", params.price);
 
     // look at price (TKN/ETH) on each exchange to determine trade direction
     // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
@@ -489,7 +511,6 @@ fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
     evm.env.tx.data = tx.input.to_owned().0;
     evm.env.tx.value = tx.value.into();
     evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
-    // evm.env.tx.nonce = Some(tx.nonce.as_u64());
     evm.env.tx.gas_limit = tx.gas.as_u64();
     match tx.transaction_type {
         Some(ethers::types::U64([0])) => {
@@ -572,7 +593,6 @@ pub fn commit_braindance_swap(
     evm.env.tx.gas_limit = 700000;
     evm.env.tx.gas_price = base_fee.into();
     evm.env.tx.value = rU256::ZERO;
-    // evm.env.tx.nonce = nonce;
 
     let res = match evm.transact_commit() {
         Ok(res) => res,
@@ -643,7 +663,7 @@ mod test {
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB
         let pool = get_other_pair_addresses(&client, (weth, tkn), PoolVariant::UniswapV3).await?[0];
-        info!("starting balance: {:?}", braindance_starting_balance());
+        println!("starting balance: {:?}", braindance_starting_balance());
         // buy 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
@@ -655,7 +675,7 @@ mod test {
             U256::from(1000000000) * 420,
             None,
         )?;
-        info!("res: {:?}", res);
+        println!("res: {:?}", res);
         // sell 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
@@ -667,7 +687,7 @@ mod test {
             U256::from(1000000000) * 420,
             None,
         )?;
-        info!("res: {:?}", res);
+        println!("res: {:?}", res);
         Ok(())
     }
 }
