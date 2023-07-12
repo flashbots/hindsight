@@ -136,6 +136,7 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
         gas_price: Some(U256::from(1000_000_000_000_u64)),
         value: None,
         data: Some(Bytes::from_str(method)?),
+        // nonce: rusty_sando::utils::get_nonce(client, address),
         nonce: None,
         chain_id: Some(U64::from(1)),
     };
@@ -149,6 +150,7 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
     evm.env.tx.value = tx.value.unwrap_or_default().into();
     evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
     evm.env.tx.gas_limit = tx.gas.unwrap_or_default().as_u64();
+    // evm.env.tx.nonce = Some(tx.nonce.unwrap_or_default().as_u64());
     // evm.env.tx.gas_priority_fee = tx.gas_priority_fee.map(|x| x.into());
     let res = match evm.transact_ref() {
         Ok(res) => res.result,

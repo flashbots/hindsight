@@ -489,7 +489,7 @@ fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
     evm.env.tx.data = tx.input.to_owned().0;
     evm.env.tx.value = tx.value.into();
     evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
-    evm.env.tx.nonce = Some(tx.nonce.as_u64());
+    // evm.env.tx.nonce = Some(tx.nonce.as_u64());
     evm.env.tx.gas_limit = tx.gas.as_u64();
     match tx.transaction_type {
         Some(ethers::types::U64([0])) => {
@@ -552,7 +552,7 @@ pub fn commit_braindance_swap(
     token_in: Address,
     token_out: Address,
     base_fee: U256,
-    nonce: Option<u64>,
+    _nonce: Option<u64>,
 ) -> Result<U256> {
     let swap_data = match pool_variant {
         PoolVariant::UniswapV2 => {
@@ -572,7 +572,7 @@ pub fn commit_braindance_swap(
     evm.env.tx.gas_limit = 700000;
     evm.env.tx.gas_price = base_fee.into();
     evm.env.tx.value = rU256::ZERO;
-    evm.env.tx.nonce = nonce;
+    // evm.env.tx.nonce = nonce;
 
     let res = match evm.transact_commit() {
         Ok(res) => res,
