@@ -269,14 +269,12 @@ async fn step_arb(
                 let params = params.clone();
 
                 handles.push(tokio::task::spawn(async move {
-                    sim_arb(&client.clone(), user_tx, &block_info, &params, amount_in)
-                        .await
-                        .unwrap_or((0.into(), 0.into()))
+                    sim_arb(&client.clone(), user_tx, &block_info, &params, amount_in).await
                 }));
             }
             let revenues = future::join_all(handles).await;
             for result in revenues {
-                let (amount_in, balance_out) = result?;
+                let (amount_in, balance_out) = result??;
                 println!("amount_in={:?} amount_out={:?}", amount_in, balance_out);
                 if balance_out > best_amount_in_out.1 {
                     best_amount_in_out = (amount_in, balance_out);
@@ -368,13 +366,15 @@ pub async fn find_optimal_backrun_amount_in_out(
             STEP_INTERVALS,
             None,
         )
-        .await?;
+        .await;
         info!("res: {:?}", res);
-        results.push(SimArbResult {
-            amount_in: res.0,
-            balance_end: res.1,
-            trade_params: params,
-        });
+        if let Ok(res) = res {
+            results.push(SimArbResult {
+                amount_in: res.0,
+                balance_end: res.1,
+                trade_params: params,
+            });
+        }
     }
 
     Ok(results)
@@ -410,7 +410,6 @@ pub async fn sim_arb(
     } else {
         info!("other pool found: {:?}", other_pool);
     }
-    // TODO: move cold state calls outside of this function
     // params.price
     let alt_price = match params.pool_variant {
         PoolVariant::UniswapV2 => {

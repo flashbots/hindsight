@@ -1,6 +1,6 @@
 use std::{ops::Mul, str::FromStr};
 
-use crate::{util::get_price_v3, Result};
+use crate::{info, util::get_price_v3, Result};
 use ethers::{
     abi::{self, ParamType},
     prelude::abigen,
@@ -14,7 +14,7 @@ use rusty_sando::{
     prelude::fork_db::ForkDB, types::SimulationError, utils::constants::get_eth_dev,
 };
 
-/// returns (amount_out, real_after_balance)
+/// returns price of token1/token0 in forked EVM.
 pub async fn sim_price_v3(
     target_pool: Address,
     input_token: Address,
@@ -61,6 +61,7 @@ pub async fn sim_price_v3(
     get_price_v3(liquidity, sqrt_price, token0_decimals)
 }
 
+/// returns price of token1/token0 in forked EVM.
 pub async fn sim_price_v2(
     target_pool: Address,
     input_token: Address,
@@ -116,9 +117,9 @@ pub async fn sim_price_v2(
         .into_uint()
         .expect("token0_decimals");
 
-    println!("token0_decimals: {}", token0_decimals);
-    println!("reserves_0: {}", reserves_0);
-    println!("reserves_1: {}", reserves_1);
+    info!("token0_decimals: {}", token0_decimals);
+    info!("reserves_0: {}", reserves_0);
+    info!("reserves_1: {}", reserves_1);
 
     Ok(reserves_1
         .mul(U256::from(10).pow(token0_decimals))
@@ -127,7 +128,7 @@ pub async fn sim_price_v2(
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
-    println!("calling method {:?}", method);
+    info!("calling method {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
         from: Some(get_eth_dev()),
         to: Some(contract.into()),
