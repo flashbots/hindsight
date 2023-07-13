@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod config;
 pub mod data;
+pub mod error;
 pub mod hindsight;
 pub mod scanner;
 pub mod sim;

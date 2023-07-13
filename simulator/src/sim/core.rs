@@ -1,3 +1,4 @@
+use crate::error::HindsightError;
 use crate::info;
 use crate::sim::evm::{sim_price_v2, sim_price_v3};
 use crate::Result;
@@ -274,6 +275,8 @@ async fn step_arb(
                 }));
             }
             let revenues = future::join_all(handles).await;
+            let revenue_len = revenues.len();
+            let mut reverts = 0;
             for result in revenues {
                 // let result = result?;
                 if let Ok(result) = result {
@@ -288,19 +291,21 @@ async fn step_arb(
                             );
                         }
                     } else {
-                        if result
-                            .unwrap_err()
-                            .to_string()
-                            .contains("no other pool found")
-                        // TODO: use real error types, not this garbage
-                        {
-                            return Err(anyhow::anyhow!("no profit possible"));
+                        let err = result.as_ref().unwrap_err().to_string();
+                        println!("err: {}", err);
+                        if err.contains("no other pool found") {
+                            return result;
+                        } else if err.contains("swap reverted") {
+                            reverts += 1;
                         }
+                        // TODO: use real error types, not this garbage
                     }
                 } else {
-                    return Ok((0.into(), 0.into()));
+                    return Err(anyhow::anyhow!("system error in step_arb"));
                 }
-                // println!("amount_in={:?} amount_out={:?}", amount_in, balance_out);
+            }
+            if reverts == revenue_len {
+                return Err(anyhow::anyhow!("all swaps reverted"));
             }
 
             // refine params and recurse
@@ -427,8 +432,7 @@ pub async fn sim_arb(
     other_pools.sort_by(|a, b| b.cmp(a)); // sort so that 0 address would be last; if it exists, non-0 address will be first
     let other_pool = other_pools[0];
     if other_pool == H160::zero() {
-        info!("no other pool found");
-        return Err(anyhow::anyhow!("no other pool found"));
+        return Err(HindsightError::PoolNotFound(params.pool).into());
     } else {
         info!("other pool found: {:?}", other_pool);
     }
