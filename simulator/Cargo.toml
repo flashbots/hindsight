@@ -14,7 +14,6 @@ dotenvy = "0.15.7"
 ethers = "2.0.7"
 futures = "0.3.28"
 mev-share-sse = {git = "https://github.com/zeroXbrock/mev-share-rs.git", branch = "optional-log-tx-fields"}
-rayon = "1.7.0"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
 rusty-sando = {path = "./rusty-sando/bot"}
 serde = "1.0.164"
