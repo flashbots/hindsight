@@ -1,17 +1,20 @@
 use crate::{
     config::Config,
-    data::{read_events, read_txs},
+    data::{self, read_events, read_txs, write_txs},
     info,
+    scanner::fetch_latest_events,
     sim::processor::{simulate_backrun, H256Map},
-    util::{get_ws_client, WsClient},
+    util::{fetch_txs, get_ws_client, WsClient},
     Result,
 };
 use ethers::types::Transaction;
-use mev_share_sse::EventHistory;
-use tracing::warn;
+use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
-#[derive(Debug)]
-pub struct HindsightFactory {}
+mod factory {
+    #[derive(Debug)]
+    pub struct HindsightFactory {}
+}
+use factory::HindsightFactory;
 
 #[derive(Clone, Debug)]
 pub struct Hindsight {
@@ -21,32 +24,32 @@ pub struct Hindsight {
     pub event_map: H256Map<EventHistory>,
 }
 
-// pub struct HindsightOptions {
-//     pub init_procedure: InitProcedure,
-// }
-
-// impl HindsightOptions {
-//     pub fn new(init_procedure: InitProcedure) -> Self {
-//         Self { init_procedure }
-//     }
-
-//     pub fn default() -> Self {
-//         Self {
-//             init_procedure: InitProcedure::Load(LoadOptions { filename: None }),
-//         }
-//     }
-// }
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ScanOptions {
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub start_timestamp: Option<u64>,
     pub end_timestamp: Option<u64>,
+    /// for saving
+    pub filename: Option<String>,
+}
+
+impl Into<EventHistoryParams> for ScanOptions {
+    fn into(self) -> EventHistoryParams {
+        EventHistoryParams {
+            block_start: self.start_block,
+            block_end: self.end_block,
+            timestamp_start: self.start_timestamp,
+            timestamp_end: self.end_timestamp,
+            limit: None,
+            offset: None,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct LoadOptions {
+    /// for loading
     pub filename: Option<String>,
 }
 
@@ -54,6 +57,16 @@ pub struct LoadOptions {
 pub enum HindsightOptions {
     Scan(ScanOptions),
     Load(LoadOptions),
+}
+
+async fn fetch_and_write_txs(
+    client: &WsClient,
+    events: &Vec<EventHistory>,
+    filename: Option<String>,
+) -> anyhow::Result<Vec<Transaction>> {
+    let cached_txs = fetch_txs(client, events).await?;
+    write_txs(filename, &cached_txs).await?;
+    Ok(cached_txs)
 }
 
 impl HindsightFactory {
@@ -70,12 +83,16 @@ impl HindsightFactory {
         match procedure_options {
             HindsightOptions::Scan(options) => {
                 // sdasd
-                let cache_events = vec![];
-                let cache_txs = vec![];
-                warn!("scan not implemented yet {:?}", options);
+                let event_client = EventClient::default();
+                let events = fetch_latest_events(&event_client, options.clone().into()).await?;
+                info!("Found {} events", events.len());
+                // save events to file
+                data::write_events(&events, options.filename.to_owned()).await?;
+                // fetch txs for events, save to file
+                let cache_txs = fetch_and_write_txs(&client, &events, options.filename).await?;
                 Ok(Hindsight {
                     client,
-                    cache_events,
+                    cache_events: events,
                     cache_txs,
                     event_map: H256Map::new(),
                 })
@@ -100,6 +117,9 @@ impl HindsightFactory {
 }
 
 impl Hindsight {
+    pub fn new() -> HindsightFactory {
+        HindsightFactory::new()
+    }
     pub async fn process_orderflow(
         self,
         txs: Option<Vec<Transaction>>,
@@ -134,10 +154,6 @@ impl Hindsight {
                 info!("{:#?}", res);
             }
         }
-        Ok(())
-    }
-
-    pub async fn scan_and_process_events(self, batch_size: usize) -> Result<()> {
         Ok(())
     }
 }

@@ -23,8 +23,6 @@ use rusty_sando::utils::tx_builder::braindance;
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 const MAX_DEPTH: usize = 4;

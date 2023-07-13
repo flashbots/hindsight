@@ -4,7 +4,7 @@ use simulator::{
     commands,
     config::Config,
     debug,
-    hindsight::{HindsightFactory, HindsightOptions, LoadOptions},
+    hindsight::{Hindsight, HindsightOptions, LoadOptions},
 };
 
 #[derive(Parser)]
@@ -74,15 +74,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Test { batch_size }) => {
-            let hindsight = HindsightFactory::new()
-                .init(
-                    config.to_owned(),
-                    HindsightOptions::Load(LoadOptions { filename: None }),
-                )
-                .await?;
-            debug!("cache events: {:?}", hindsight.event_map.len());
-            debug!("cache txs: {:?}", hindsight.cache_txs.len());
-            commands::test::run(hindsight, batch_size).await?;
+            commands::test::run(batch_size, config).await?;
         }
         Some(Commands::Scan {
             block_start,
@@ -99,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
                 limit: None,
                 offset: None,
             };
-            commands::scan::run(params, None).await?;
+            commands::scan::run(params, None, config).await?;
         }
         None => {
             println!("for usage, run: cargo run -- --help");
