@@ -1,10 +1,8 @@
 use crate::info;
 use crate::Result;
-use std::sync::Arc;
-
 use ethers::types::Transaction;
 use mev_share_sse::EventHistory;
-// use serde::Deserialize;
+use std::sync::Arc;
 use tokio::fs;
 
 const DEFAULT_FILENAME: &'static str = "events.json";

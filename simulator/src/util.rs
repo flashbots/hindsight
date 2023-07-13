@@ -1,5 +1,4 @@
 use crate::{config::Config, interfaces::PoolVariant, Result};
-pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
     providers::{Middleware, Provider, Ws},
@@ -11,6 +10,7 @@ use rusty_sando::types::BlockInfo;
 use std::sync::Arc;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
+pub use ethers::utils::WEI_IN_ETHER as ETH;
 pub type WsClient = Arc<Provider<Ws>>;
 
 pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {

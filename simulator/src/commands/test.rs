@@ -1,7 +1,6 @@
-use ethers::types::H256;
-
 use crate::hindsight::Hindsight;
 use crate::Result;
+use ethers::types::H256;
 
 pub async fn run(hindsight: Hindsight, batch_size: Option<usize>) -> Result<()> {
     let juicy_tx_hash: H256 =

@@ -1,6 +1,4 @@
-use std::{ops::Mul, str::FromStr};
-
-use crate::{debug, util::get_price_v3, Result};
+use crate::{debug, error::HindsightError, util::get_price_v3, Error, Result};
 use ethers::{
     abi::{self, ParamType},
     prelude::abigen,
@@ -13,6 +11,7 @@ use revm::{
 use rusty_sando::{
     prelude::fork_db::ForkDB, types::SimulationError, utils::constants::get_eth_dev,
 };
+use std::{ops::Mul, str::FromStr};
 
 /// returns price of token1/token0 in forked EVM.
 pub async fn sim_price_v3(
@@ -68,11 +67,11 @@ pub async fn sim_price_v2(
     output_token: Address,
     evm: &mut EVM<ForkDB>,
 ) -> Result<U256> {
-    // get reserves
+    // getReserves
     evm.env.tx.transact_to = TransactTo::Call(target_pool.0.into());
     evm.env.tx.caller = get_eth_dev().0.into();
     evm.env.tx.value = rU256::ZERO;
-    evm.env.tx.data = Bytes::from_str("0x0902f1ac").unwrap().0; // getReserves()
+    evm.env.tx.data = Bytes::from_str("0x0902f1ac")?.0; // getReserves()
     evm.env.tx.gas_price = rU256::from(100_000_000_000_i64);
     evm.env.tx.gas_limit = 900_000_u64;
     evm.env.tx.gas_priority_fee = Some(rU256::from(13_000_000_000_u64));
@@ -100,11 +99,22 @@ pub async fn sim_price_v2(
             ParamType::Uint(32),
         ],
         &output,
-    )
-    .unwrap();
+    )?;
 
-    let reserves_0 = tokens[0].clone().into_uint().unwrap();
-    let reserves_1 = tokens[1].clone().into_uint().unwrap();
+    let reserves_0 = tokens[0].clone().into_uint().ok_or::<Error>(
+        HindsightError::MathError(format!(
+            "reserves_0 failed to cast token to uint (token={})",
+            tokens[0]
+        ))
+        .into(),
+    )?;
+    let reserves_1 = tokens[1].clone().into_uint().ok_or::<Error>(
+        HindsightError::MathError(format!(
+            "reserves_1 failed to cast token to uint (token={})",
+            tokens[1]
+        ))
+        .into(),
+    )?;
 
     let token0 = match input_token < output_token {
         true => input_token,
@@ -115,12 +125,18 @@ pub async fn sim_price_v2(
     let token0_decimals = token0_decimals_tokens[0]
         .clone()
         .into_uint()
-        .expect("token0_decimals");
+        .ok_or::<Error>(HindsightError::CallError("token decimals not found".to_owned()).into())?;
 
     Ok(reserves_1
         .mul(U256::from(10).pow(token0_decimals))
         .checked_div(reserves_0)
-        .ok_or_else(|| anyhow::format_err!("failed to divide reserves"))?)
+        .ok_or::<Error>(
+            HindsightError::MathError(format!(
+                "failed to divide reserves (reserves_0, reserves_1)=({},{})",
+                reserves_0, reserves_1
+            ))
+            .into(),
+        )?)
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
@@ -132,7 +148,6 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
         gas_price: Some(U256::from(1000_000_000_000_u64)),
         value: None,
         data: Some(Bytes::from_str(method)?),
-        // nonce: rusty_sando::utils::get_nonce(client, address),
         nonce: None,
         chain_id: Some(U64::from(1)),
     };
@@ -141,13 +156,33 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
 
 pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<Bytes> {
     evm.env.tx.caller = B160::from(tx.from.unwrap_or(get_eth_dev()));
-    evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap().as_address().unwrap().0));
-    evm.env.tx.data = tx.data.to_owned().unwrap().0;
+    evm.env.tx.transact_to = TransactTo::Call(B160::from(
+        tx.to
+            .to_owned()
+            .ok_or::<Error>(
+                HindsightError::EvmParseError(format!("tx.to invalid ({:?})", tx.to)).into(),
+            )?
+            .as_address()
+            .ok_or::<Error>(
+                // TODO: find cleaner way to do this
+                HindsightError::EvmParseError(format!(
+                    "tx.to could not parse address ({:?})",
+                    tx.to
+                ))
+                .into(),
+            )?
+            .0,
+    ));
+    evm.env.tx.data = tx
+        .data
+        .to_owned()
+        .ok_or::<Error>(
+            HindsightError::EvmParseError(format!("tx.data invalid ({:?})", tx.data)).into(),
+        )?
+        .0;
     evm.env.tx.value = tx.value.unwrap_or_default().into();
     evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
     evm.env.tx.gas_limit = tx.gas.unwrap_or_default().as_u64();
-    // evm.env.tx.nonce = Some(tx.nonce.unwrap_or_default().as_u64());
-    // evm.env.tx.gas_priority_fee = tx.gas_priority_fee.map(|x| x.into());
     let res = match evm.transact_ref() {
         Ok(res) => res.result,
         Err(err) => {

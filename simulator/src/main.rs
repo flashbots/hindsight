@@ -1,5 +1,3 @@
-// use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 use mev_share_sse::EventHistoryParams;
 use simulator::{commands, config::Config, hindsight::HindsightFactory};

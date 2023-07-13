@@ -1,11 +1,10 @@
-use ethers::types::Transaction;
-use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
-
 use crate::data::write_txs;
 use crate::info;
 use crate::scanner::fetch_latest_events;
 use crate::util::{fetch_txs, get_ws_client, WsClient};
 use crate::{data, Result};
+use ethers::types::Transaction;
+use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
 async fn fetch_and_write_txs(
     client: &WsClient,
