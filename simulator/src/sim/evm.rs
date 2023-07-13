@@ -1,6 +1,6 @@
 use std::{ops::Mul, str::FromStr};
 
-use crate::{info, util::get_price_v3, Result};
+use crate::{debug, util::get_price_v3, Result};
 use ethers::{
     abi::{self, ParamType},
     prelude::abigen,
@@ -117,10 +117,6 @@ pub async fn sim_price_v2(
         .into_uint()
         .expect("token0_decimals");
 
-    info!("token0_decimals: {}", token0_decimals);
-    info!("reserves_0: {}", reserves_0);
-    info!("reserves_1: {}", reserves_1);
-
     Ok(reserves_1
         .mul(U256::from(10).pow(token0_decimals))
         .checked_div(reserves_0)
@@ -128,7 +124,7 @@ pub async fn sim_price_v2(
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
-    info!("calling method {:?}", method);
+    debug!("calling method {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
         from: Some(get_eth_dev()),
         to: Some(contract.into()),
