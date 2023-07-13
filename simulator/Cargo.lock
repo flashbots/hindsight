@@ -3552,6 +3552,7 @@ dependencies = [
  "ethers",
  "futures",
  "mev-share-sse",
+ "rayon",
  "revm",
  "rusty-sando",
  "serde",

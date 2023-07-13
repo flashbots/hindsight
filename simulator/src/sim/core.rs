@@ -5,9 +5,9 @@ use crate::Result;
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
-
 use futures::future;
 use mev_share_sse::{EventHistory, EventTransactionLog};
+use rayon::prelude::*;
 use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
@@ -263,14 +263,17 @@ async fn step_arb(
         });
     }
     // returns best (in, out) amounts
-    let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into()));
+    let best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into())); // (0, 0) is default assignment on initial call
+    let best_amount_in_out = Arc::new(Mutex::new(best_amount_in_out));
+
     if let Some(depth) = depth {
         // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
+        let mut best_amount_in_out = best_amount_in_out.lock().await;
         if depth > MAX_DEPTH
             || (best_amount_in_out.0 > U256::from(0)
                 && best_amount_in_out.0 < (U256::from(180_000) * block_info.base_fee))
         {
-            return Ok(best_amount_in_out);
+            return Ok(*best_amount_in_out);
         } else {
             // run sims with current params
             let mut handles = vec![];
@@ -297,7 +300,7 @@ async fn step_arb(
                     if let Ok(result) = result {
                         let (amount_in, balance_out) = result;
                         if balance_out > best_amount_in_out.1 {
-                            best_amount_in_out = (amount_in, balance_out);
+                            *best_amount_in_out = (amount_in, balance_out);
                             info!(
                                 "new best (amount_in, balance_out): {:?}",
                                 best_amount_in_out
@@ -342,7 +345,7 @@ async fn step_arb(
                 user_tx,
                 block_info,
                 params,
-                Some(best_amount_in_out),
+                Some(*best_amount_in_out),
                 range,
                 intervals,
                 Some(depth + 1),
@@ -350,12 +353,13 @@ async fn step_arb(
             .await;
         }
     } else {
+        let best_thing = best_amount_in_out.lock().await;
         return step_arb(
             client,
             user_tx,
             block_info,
             params,
-            Some(best_amount_in_out),
+            Some(*best_thing),
             range,
             intervals,
             Some(0),
