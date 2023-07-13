@@ -19,6 +19,8 @@ use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
@@ -250,6 +252,16 @@ async fn step_arb(
     ",
         depth, range
     );
+    if (range[1] - range[0]) < U256::from(500_000) * 1_000_000_000 {
+        info!("range tight enough, finishing early");
+        return best_amount_in_out.ok_or_else(|| {
+            anyhow::anyhow!(
+                "No arbitrage opportunity found for trade {:?} at depth {:?}",
+                params,
+                depth
+            )
+        });
+    }
     // returns best (in, out) amounts
     let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into()));
     if let Some(depth) = depth {
@@ -276,7 +288,8 @@ async fn step_arb(
             }
             let revenues = future::join_all(handles).await;
             let revenue_len = revenues.len();
-            let mut reverts = 0;
+            let num_reverts = Arc::new(Mutex::new(0));
+
             for result in revenues {
                 // let result = result?;
                 if let Ok(result) = result {
@@ -296,16 +309,18 @@ async fn step_arb(
                         if err.contains("no other pool found") {
                             return result;
                         } else if err.contains("swap reverted") {
-                            reverts += 1;
+                            let mut n_reverts = num_reverts.lock().await;
+                            *n_reverts += 1;
                         }
                         // TODO: use real error types, not this garbage
                     }
                 } else {
                     return Err(anyhow::anyhow!("system error in step_arb"));
                 }
-            }
-            if reverts == revenue_len {
-                return Err(anyhow::anyhow!("all swaps reverted"));
+                let n_reverts = num_reverts.lock().await;
+                if n_reverts.to_owned() == revenue_len {
+                    return Err(anyhow::anyhow!("all swaps reverted"));
+                }
             }
 
             // refine params and recurse
