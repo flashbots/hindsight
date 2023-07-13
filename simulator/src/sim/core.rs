@@ -1,6 +1,6 @@
 use crate::error::HindsightError;
 use crate::interfaces::{BackrunResult, PoolVariant, SimArbResult, TokenPair, UserTradeParams};
-use crate::sim::evm::{sim_price_v2, sim_price_v3};
+use crate::sim::evm::{sim_bundle, sim_price_v2, sim_price_v3};
 use crate::util::{
     get_other_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
 };
@@ -11,7 +11,7 @@ use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 use futures::future;
 use mev_share_sse::{EventHistory, EventTransactionLog};
-use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
+use revm::primitives::{ExecutionResult, Output, TransactTo, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
 use rusty_sando::simulate::{
@@ -194,7 +194,6 @@ async fn derive_trade_params(
             },
         })
     }
-    // pick the trade with the highest price disparity
     Ok(trade_params)
 }
 
@@ -214,12 +213,12 @@ async fn step_arb(
 ) -> Result<(U256, U256)> {
     info!(
         "step_arb
-        best (in, bal)\t{:?}
+        best (weth_in, weth_bal)\t{:?}
         depth:\t{:?}
         range:\t{:?}
         user_tx:\t{:?}
-        start_pair_variant:\t{:?}
-        end_pair_variant:\t{:?}
+        (start_pair, variant):\t{:?}
+        (end_pair, variant):\t{:?}
     ",
         best_amount_in_out, depth, range, user_tx.hash, start_pair_variant, end_pair_variant
     );
@@ -369,106 +368,132 @@ pub async fn find_optimal_backrun_amount_in_out(
     // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
 
     let mut pool_handles = vec![];
+    /*
+     Δ
+    Δ Δ Branch for each pool.
+                                             user_event
+                                                / \  \
+                                               /   \  \
+                                              /     \  ...
+                                         params     params
+                                           / \       / \ \
+                                          /   \     /   \ \
+                                         /     \   /     \ ...
+       pool_handles <--(bg thread) <--[ pool,pool,pool,pool ]
+
+            Simulate an arb for every pool and throw out the ones that
+            don't turn a profit.
+
+            `pool_handles` will hold the joinable background thread handlers,
+            each of which will return a result. Each handle is responsible for
+            determining whether it was profitable, and terminating its execution
+            early if it finds a failure case.
+
+            When we join the results, we'll filter out the error/null values,
+            which leaves us with only the profitable sims.
+        */
     for params in params {
         if params.arb_pools.len() == 0 {
             continue;
         }
-        // assume the last pool in arb_pools (whose order is derived from event logs) is the one we want to arb on
-        // TODO: arb on multiple pools if they don't touch the same pair contracts
-        let other_pool = params.arb_pools[params.arb_pools.len() - 1];
-        let mut evm = fork_evm(client, block_info)
-            .await
-            .expect("failed to fork evm");
 
-        let alt_price = match params.pool_variant {
-            PoolVariant::UniswapV2 => {
-                sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm)
+        // let mut init_handles = vec![];
+        for other_pool in params.arb_pools.to_owned() {
+            let client = client.clone();
+            let user_tx = user_tx.clone();
+            let block_info = block_info.clone();
+            let params = params.clone();
+            let handle = tokio::spawn(async move {
+                let mut evm = fork_evm(&client, &block_info)
                     .await
-                    .expect("sim_price_v3 panicked")
-            }
-            PoolVariant::UniswapV3 => {
-                sim_price_v2(other_pool, params.token_in, params.token_out, &mut evm)
-                    .await
-                    .expect("sim_price_v2 panicked")
-            }
-        };
-        debug!("alt price {:?}", alt_price);
+                    .expect("failed to fork evm");
 
-        let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
-            // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
-            /* NOTE: ASSUME THAT WE'RE ALWAYS SWAPPING __BETWEEN__ VARIANTS. */
-            if params.price.gt(&alt_price) {
-                (params.pool, params.pool_variant, other_pool)
-            } else {
-                (other_pool, params.pool_variant.other(), params.pool)
-            }
-        } else {
-            // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
-            if params.price.gt(&alt_price) {
-                (other_pool, params.pool_variant.other(), params.pool)
-            } else {
-                (params.pool, params.pool_variant, other_pool)
-            }
-        };
+                let alt_price = match params.pool_variant {
+                    PoolVariant::UniswapV2 => {
+                        sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm)
+                            .await
+                            .expect("sim_price_v3 panicked")
+                    }
+                    PoolVariant::UniswapV3 => {
+                        sim_price_v2(other_pool, params.token_in, params.token_out, &mut evm)
+                            .await
+                            .expect("sim_price_v2 panicked")
+                    }
+                };
+                debug!("alt price {:?}", alt_price);
 
-        // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
-        let amount_in_start = if params.token_in == params.tokens.weth {
-            if params.token0_is_weth {
-                params.amount0_sent.into_raw()
-            } else {
-                params.amount1_sent.into_raw()
-            }
-        } else {
-            if params.token0_is_weth {
-                params.amount1_sent.into_raw() * params.price
-            } else {
-                params.amount0_sent.into_raw() * params.price
-            }
-        };
-        let initial_range = [0.into(), amount_in_start];
+                let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
+                    // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
+                    /* NOTE: ASSUME THAT WE'RE ALWAYS SWAPPING __BETWEEN__ VARIANTS. */
+                    if params.price.gt(&alt_price) {
+                        (params.pool, params.pool_variant, other_pool)
+                    } else {
+                        (other_pool, params.pool_variant.other(), params.pool)
+                    }
+                } else {
+                    // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
+                    if params.price.gt(&alt_price) {
+                        (other_pool, params.pool_variant.other(), params.pool)
+                    } else {
+                        (params.pool, params.pool_variant, other_pool)
+                    }
+                };
 
-        let client = client.clone();
-        let user_tx = user_tx.clone();
-        let block_info = block_info.clone();
-        let params = params.clone();
-        let handle = tokio::spawn(async move {
-            // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
-            let res = step_arb(
-                client.clone(),
-                user_tx,
-                block_info,
-                params.to_owned(),
-                None,
-                initial_range,
-                STEP_INTERVALS,
-                None,
-                (start_pool, start_pool_variant),
-                (end_pool, start_pool_variant.other()),
-            )
-            .await;
-            debug!("*** step_arb complete: {:?}", res);
-            if let Ok(res) = res {
-                Some(SimArbResult {
-                    user_trade: params,
-                    backrun_trade: BackrunResult {
-                        amount_in: res.0,
-                        balance_end: res.1,
-                        profit: if res.1 > start_balance {
-                            res.1 - start_balance
-                        } else {
-                            0.into()
+                // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
+                let amount_in_start = if params.token_in == params.tokens.weth {
+                    if params.token0_is_weth {
+                        params.amount0_sent.into_raw()
+                    } else {
+                        params.amount1_sent.into_raw()
+                    }
+                } else {
+                    if params.token0_is_weth {
+                        params.amount1_sent.into_raw() * params.price
+                    } else {
+                        params.amount0_sent.into_raw() * params.price
+                    }
+                };
+                let initial_range = [0.into(), amount_in_start];
+
+                // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
+                let res = step_arb(
+                    client.clone(),
+                    user_tx,
+                    block_info,
+                    params.to_owned(),
+                    None,
+                    initial_range,
+                    STEP_INTERVALS,
+                    None,
+                    (start_pool, start_pool_variant),
+                    (end_pool, start_pool_variant.other()),
+                )
+                .await;
+                debug!("*** step_arb complete: {:?}", res);
+                if let Ok(res) = res {
+                    Some(SimArbResult {
+                        user_trade: params,
+                        backrun_trade: BackrunResult {
+                            amount_in: res.0,
+                            balance_end: res.1,
+                            profit: if res.1 > start_balance {
+                                res.1 - start_balance
+                            } else {
+                                0.into()
+                            },
+                            start_pool: start_pool,
+                            end_pool: end_pool,
+                            arb_variant: start_pool_variant.other(),
                         },
-                        start_pool: start_pool,
-                        end_pool: end_pool,
-                        arb_variant: start_pool_variant.other(),
-                    },
-                })
-            } else {
-                None
-            }
-        });
-        pool_handles.push(handle);
+                    })
+                } else {
+                    None
+                }
+            });
+            pool_handles.push(handle);
+        }
     }
+
     // Ok(pool_handles)
     let results: Vec<_> = future::join_all(pool_handles).await;
     Ok(results
@@ -529,61 +554,6 @@ pub async fn sim_arb(
     )?;
     debug!("braindance 2 completed. {:?}", res);
     Ok((amount_in, res))
-}
-
-fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
-    evm.env.tx.caller = B160::from(tx.from);
-    evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
-    evm.env.tx.data = tx.input.to_owned().0;
-    evm.env.tx.value = tx.value.into();
-    evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
-    evm.env.tx.gas_limit = tx.gas.as_u64();
-    match tx.transaction_type {
-        Some(ethers::types::U64([0])) => {
-            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
-        }
-        Some(_) => {
-            // type-2 tx
-            evm.env.tx.gas_priority_fee = tx.max_priority_fee_per_gas.map(|fee| fee.into());
-            evm.env.tx.gas_price = tx.max_fee_per_gas.unwrap_or_default().into();
-        }
-        None => {
-            // legacy tx
-            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
-        }
-    }
-    Ok(())
-}
-
-/// Execute a transaction on the forked EVM, commiting its state changes to the EVM's ForkDB.
-pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
-    inject_tx(evm, &tx)?;
-    let res = evm.transact_commit();
-    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
-}
-
-pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAndState> {
-    inject_tx(evm, &tx)?;
-    let res = evm.transact();
-    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
-}
-
-/// Simulate a bundle of transactions, commiting each tx to the EVM's ForkDB.
-///
-/// Returns array containing each tx's simulation result.
-pub async fn sim_bundle(
-    evm: &mut EVM<ForkDB>,
-    signed_txs: Vec<Transaction>,
-) -> Result<Vec<ExecutionResult>> {
-    let mut results = vec![];
-    for tx in signed_txs {
-        let res = commit_tx(evm, tx).await;
-        if let Ok(res) = res {
-            results.push(res.to_owned());
-        }
-    }
-
-    Ok(results)
 }
 
 /// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.

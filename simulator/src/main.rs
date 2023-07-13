@@ -1,11 +1,6 @@
 use clap::{Parser, Subcommand};
 use mev_share_sse::EventHistoryParams;
-use simulator::{
-    commands,
-    config::Config,
-    debug,
-    hindsight::{Hindsight, HindsightOptions, LoadOptions},
-};
+use simulator::{commands, config::Config, debug};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

@@ -2,10 +2,10 @@ use crate::{debug, error::HindsightError, util::get_price_v3, Error, Result};
 use ethers::{
     abi::{self, ParamType},
     prelude::abigen,
-    types::{Address, Bytes, TransactionRequest, U256, U64},
+    types::{Address, Bytes, Transaction, TransactionRequest, U256, U64},
 };
 use revm::{
-    primitives::{ExecutionResult, Output, TransactTo, B160, U256 as rU256},
+    primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256},
     EVM,
 };
 use rusty_sando::{
@@ -202,6 +202,61 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
         }
     };
     Ok(output)
+}
+
+fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
+    evm.env.tx.caller = B160::from(tx.from);
+    evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
+    evm.env.tx.data = tx.input.to_owned().0;
+    evm.env.tx.value = tx.value.into();
+    evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
+    evm.env.tx.gas_limit = tx.gas.as_u64();
+    match tx.transaction_type {
+        Some(ethers::types::U64([0])) => {
+            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+        }
+        Some(_) => {
+            // type-2 tx
+            evm.env.tx.gas_priority_fee = tx.max_priority_fee_per_gas.map(|fee| fee.into());
+            evm.env.tx.gas_price = tx.max_fee_per_gas.unwrap_or_default().into();
+        }
+        None => {
+            // legacy tx
+            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+        }
+    }
+    Ok(())
+}
+
+/// Simulate a bundle of transactions, commiting each tx to the EVM's ForkDB.
+///
+/// Returns array containing each tx's simulation result.
+pub async fn sim_bundle(
+    evm: &mut EVM<ForkDB>,
+    signed_txs: Vec<Transaction>,
+) -> Result<Vec<ExecutionResult>> {
+    let mut results = vec![];
+    for tx in signed_txs {
+        let res = commit_tx(evm, tx).await;
+        if let Ok(res) = res {
+            results.push(res.to_owned());
+        }
+    }
+
+    Ok(results)
+}
+
+/// Execute a transaction on the forked EVM, commiting its state changes to the EVM's ForkDB.
+pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
+    inject_tx(evm, &tx)?;
+    let res = evm.transact_commit();
+    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
+}
+
+pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAndState> {
+    inject_tx(evm, &tx)?;
+    let res = evm.transact();
+    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
 }
 
 #[cfg(test)]
