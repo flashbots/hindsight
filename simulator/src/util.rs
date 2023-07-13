@@ -1,4 +1,4 @@
-use crate::{config::Config, Result};
+use crate::{config::Config, interfaces::PoolVariant, Result};
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 use ethers::{
     prelude::{abigen, H160},
@@ -7,7 +7,7 @@ use ethers::{
 };
 use futures::future;
 use mev_share_sse::EventHistory;
-use rusty_sando::{prelude::PoolVariant, types::BlockInfo};
+use rusty_sando::types::BlockInfo;
 use std::sync::Arc;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
@@ -154,13 +154,6 @@ pub async fn get_other_pair_addresses(
         }
     };
     Ok(other_pairs)
-}
-
-pub fn get_other_variant(pool_variant: PoolVariant) -> PoolVariant {
-    match pool_variant {
-        PoolVariant::UniswapV2 => PoolVariant::UniswapV3,
-        PoolVariant::UniswapV3 => PoolVariant::UniswapV2,
-    }
 }
 
 /// Returns the price (token1 per token0).

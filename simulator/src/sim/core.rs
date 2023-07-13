@@ -1,7 +1,8 @@
 use crate::error::HindsightError;
+use crate::interfaces::{PoolVariant, SimArbResult, TokenPair, UserTradeParams};
 use crate::sim::evm::{sim_price_v2, sim_price_v3};
 use crate::Result;
-use crate::{debug, info, log_error, warn};
+use crate::{debug, info};
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
@@ -10,7 +11,6 @@ use mev_share_sse::{EventHistory, EventTransactionLog};
 use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
-use rusty_sando::prelude::PoolVariant;
 use rusty_sando::simulate::{
     attach_braindance_module, braindance_address, braindance_controller_address, setup_block_state,
 };
@@ -24,8 +24,7 @@ use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
 use crate::util::{
-    get_other_pair_addresses, get_other_variant, get_pair_tokens, get_price_v2, get_price_v3,
-    WsClient,
+    get_other_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
 };
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 
@@ -58,26 +57,6 @@ pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<F
     Ok(evm)
 }
 
-/// Information derived from user's trade tx.
-#[derive(Debug, Clone)]
-pub struct UserTradeParams {
-    pub pool_variant: PoolVariant,
-    pub token_in: Address,
-    pub token_out: Address,
-    pub amount0_sent: I256,
-    pub amount1_sent: I256,
-    pub token0_is_weth: bool,
-    pub pool: Address,
-    pub price: U256,
-    pub tokens: TokenPair,
-}
-
-#[derive(Debug, Clone)]
-pub struct TokenPair {
-    pub weth: Address,
-    pub token: Address,
-}
-
 /// Returns None if trade params can't be derived.
 ///
 /// May derive multiple trades from a single tx.
@@ -98,7 +77,6 @@ async fn derive_trade_params(
     ];
 
     // get potential pool addresses from event, relying on mev-share hints
-
     let swap_logs = event
         .hint
         .logs
@@ -249,7 +227,10 @@ async fn step_arb(
             )
         });
     }
-    // returns best (in, out) amounts
+    /*
+        (eth_into_arb,
+        eth_balance_after_arb)
+    */
     let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into())); // (0, 0) is default assignment on initial call
 
     if let Some(depth) = depth {
@@ -301,10 +282,9 @@ async fn step_arb(
                         }
                         // TODO: use real error types, not this garbage
                     }
+                } else {
+                    return Err(anyhow::anyhow!("system error in step_arb"));
                 }
-                // else {
-                //     return Err(anyhow::anyhow!("system error in step_arb"));
-                // }
                 if num_reverts == revenue_len {
                     return Err(anyhow::anyhow!("all swaps reverted"));
                 }
@@ -351,13 +331,6 @@ async fn step_arb(
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SimArbResult {
-    pub amount_in: U256,
-    pub balance_end: U256,
-    pub trade_params: UserTradeParams,
-}
-
 /// Find the optimal backrun for a given tx.
 pub async fn find_optimal_backrun_amount_in_out(
     client: &WsClient,
@@ -393,6 +366,19 @@ pub async fn find_optimal_backrun_amount_in_out(
             let params = params.clone();
             let results = results.clone();
             tokio::spawn(async move {
+                /*
+
+
+
+
+
+                        hey
+
+
+
+
+
+                */
                 let res = step_arb(
                     client.clone(),
                     user_tx,
@@ -404,6 +390,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                     None,
                 )
                 .await;
+                // TODO: here, log the result to a file
                 debug!("*** step_arb complete: {:?}", res);
                 if let Ok(res) = res {
                     let mut results = results.lock().await;
@@ -470,20 +457,12 @@ pub async fn sim_arb(
         if params.price.gt(&alt_price) {
             (params.pool, params.pool_variant, other_pool)
         } else {
-            (
-                other_pool,
-                get_other_variant(params.pool_variant),
-                params.pool,
-            )
+            (other_pool, params.pool_variant.other(), params.pool)
         }
     } else {
         // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
         if params.price.gt(&alt_price) {
-            (
-                other_pool,
-                get_other_variant(params.pool_variant),
-                params.pool,
-            )
+            (other_pool, params.pool_variant.other(), params.pool)
         } else {
             (params.pool, params.pool_variant, other_pool)
         }
@@ -507,7 +486,7 @@ pub async fn sim_arb(
     /* Sell them on other exchange. */
     let res = commit_braindance_swap(
         &mut evm,
-        get_other_variant(start_pool_variant),
+        start_pool_variant.other(),
         amount_received,
         end_pool,
         params.tokens.token,
