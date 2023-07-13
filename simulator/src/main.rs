@@ -1,6 +1,11 @@
 use clap::{Parser, Subcommand};
 use mev_share_sse::EventHistoryParams;
-use simulator::{commands, config::Config, hindsight::HindsightFactory};
+use simulator::{
+    commands,
+    config::Config,
+    debug,
+    hindsight::{HindsightFactory, HindsightOptions, LoadOptions},
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -69,9 +74,14 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Test { batch_size }) => {
-            let hindsight = HindsightFactory::new().init(config.to_owned()).await?;
-            println!("cache events: {:?}", hindsight.event_map.len());
-            println!("cache txs: {:?}", hindsight.cache_txs.len());
+            let hindsight = HindsightFactory::new()
+                .init(
+                    config.to_owned(),
+                    HindsightOptions::Load(LoadOptions { filename: None }),
+                )
+                .await?;
+            debug!("cache events: {:?}", hindsight.event_map.len());
+            debug!("cache txs: {:?}", hindsight.cache_txs.len());
             commands::test::run(hindsight, batch_size).await?;
         }
         Some(Commands::Scan {
@@ -80,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
             block_end,
             timestamp_end,
         }) => {
-            println!("scan command");
+            debug!("scan command");
             let params = EventHistoryParams {
                 block_start,
                 block_end,

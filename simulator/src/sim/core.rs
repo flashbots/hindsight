@@ -1,5 +1,5 @@
 use crate::error::HindsightError;
-use crate::interfaces::{PoolVariant, SimArbResult, TokenPair, UserTradeParams};
+use crate::interfaces::{BackrunResult, PoolVariant, SimArbResult, TokenPair, UserTradeParams};
 use crate::sim::evm::{sim_price_v2, sim_price_v3};
 use crate::util::{
     get_other_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
@@ -15,7 +15,8 @@ use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
 use rusty_sando::simulate::{
-    attach_braindance_module, braindance_address, braindance_controller_address, setup_block_state,
+    attach_braindance_module, braindance_address, braindance_controller_address,
+    braindance_starting_balance, setup_block_state,
 };
 use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
@@ -82,14 +83,28 @@ async fn derive_trade_params(
         .map(|log| log.to_owned())
         .collect::<Vec<EventTransactionLog>>();
     debug!("swap logs {:?}", swap_logs);
+    // derive trade direction from (full) tx logs
+    let tx_receipt = client
+        .get_transaction_receipt(tx.hash)
+        .await?
+        .ok_or::<Error>(HindsightError::TxNotLanded(tx.hash).into())?;
 
     // collect trade params for each pair derived from swap logs
     let mut trade_params = vec![];
     for swap_log in swap_logs {
         let pool_address = swap_log.address;
-        let swap_topic = swap_log.topics[0];
+        let swap_topic = swap_log.topics[0]; // MEV-Share puts the swap topic in the 0th position, following txs are zeroed out by default
         debug!("pool address: {:?}", pool_address);
         debug!("swap topic: {:?}", swap_topic);
+
+        let swap_log = tx_receipt
+            .logs
+            .iter()
+            .find(|log| log.topics.contains(&swap_topic) && log.address == pool_address)
+            .ok_or(anyhow::format_err!(
+                "no swap logs found for tx {:?}",
+                tx.hash
+            ))?;
 
         // derive pool variant from event log topics
         let pool_variant = if swap_topic == univ3_topic {
@@ -100,24 +115,11 @@ async fn derive_trade_params(
         debug!("pool variant: {:?}", pool_variant);
 
         // get token addrs from pool address
+        // tokens may vary per swap log -- many swaps can happen in one tx
         let (token0, token1) = get_pair_tokens(client, pool_address).await?;
         debug!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
         let token0_is_weth =
             token0 == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse::<H160>()?;
-
-        // derive trade direction from (full) tx logs
-        let tx_receipt = client
-            .get_transaction_receipt(tx.hash)
-            .await?
-            .ok_or::<Error>(HindsightError::TxNotLanded(tx.hash).into())?; // TODO: handle unwrap
-        let swap_log = tx_receipt
-            .logs
-            .iter()
-            .find(|log| log.topics.contains(&swap_topic) && log.address == pool_address);
-        let swap_log = swap_log.ok_or(anyhow::format_err!(
-            "no swap logs found for tx {:?}",
-            tx.hash
-        ))?;
 
         // if a Sync event (UniV2) is detected from the tx logs, it can be used to get the new price
         let sync_log: Option<_> = tx_receipt
@@ -153,13 +155,13 @@ async fn derive_trade_params(
             PoolVariant::UniswapV2 => {
                 let amount0_out = I256::from_raw(U256::from_big_endian(&swap_log.data[64..96]));
                 let amount1_out = I256::from_raw(U256::from_big_endian(&swap_log.data[96..128]));
-                let mut price = U256::zero();
+                let mut new_price = U256::zero();
                 if let Some(sync_log) = sync_log {
                     let reserve0 = U256::from_big_endian(&sync_log.data[0..32]);
                     let reserve1 = U256::from_big_endian(&sync_log.data[32..64]);
-                    price = get_price_v2(reserve0, reserve1, U256::from(18))?;
+                    new_price = get_price_v2(reserve0, reserve1, U256::from(18))?;
                 }
-                (amount0_out, amount1_out, price)
+                (amount0_out, amount1_out, new_price)
             }
         };
 
@@ -169,13 +171,23 @@ async fn derive_trade_params(
             if swap_0_for_1 { token0 } else { token1 },
             if swap_0_for_1 { token1 } else { token0 }
         );
+        let token_in = if swap_0_for_1 { token0 } else { token1 };
+        let token_out = if swap_0_for_1 { token1 } else { token0 };
+        let arb_pools: Vec<Address> =
+            get_other_pair_addresses(client, (token_in, token_out), pool_variant)
+                .await?
+                .into_iter()
+                .filter(|pool| !pool.is_zero())
+                .collect();
+        println!("arb_pools: {:?}", arb_pools);
         trade_params.push(UserTradeParams {
             pool_variant,
-            token_in: if swap_0_for_1 { token0 } else { token1 },
-            token_out: if swap_0_for_1 { token1 } else { token0 },
+            token_in,
+            token_out,
             amount0_sent,
             amount1_sent,
             pool: pool_address,
+            arb_pools,
             price: new_price,
             token0_is_weth,
             tokens: TokenPair {
@@ -184,6 +196,7 @@ async fn derive_trade_params(
             },
         })
     }
+    // pick the trade with the highest price disparity
     Ok(trade_params)
 }
 
@@ -198,6 +211,8 @@ async fn step_arb(
     range: [U256; 2],
     intervals: usize,
     depth: Option<usize>,
+    start_pair_variant: (Address, PoolVariant),
+    end_pair_variant: (Address, PoolVariant),
 ) -> Result<(U256, U256)> {
     info!(
         "step_arb
@@ -205,9 +220,16 @@ async fn step_arb(
         depth:\t{:?}
         range:\t{:?}
         user_tx:\t{:?}
+        start_pair_variant:\t{:?}
+        end_pair_variant:\t{:?}
     ",
-        best_amount_in_out, depth, range, user_tx.hash
+        best_amount_in_out, depth, range, user_tx.hash, start_pair_variant, end_pair_variant
     );
+
+    if params.arb_pools.len() == 0 {
+        return Err(HindsightError::PoolNotFound(params.pool).into());
+    }
+
     if (range[1] - range[0]) < U256::from(500_000) * 1_000_000_000 {
         debug!("range tight enough, finishing early");
         return best_amount_in_out.ok_or_else(|| {
@@ -237,14 +259,22 @@ async fn step_arb(
             let mut handles = vec![];
             let band_width = (range[1] - range[0]) / U256::from(intervals);
             for i in 0..intervals {
+                let evm = fork_evm(&client, &block_info).await?;
                 let amount_in = range[0] + band_width * U256::from(i);
-                let client = client.clone();
                 let user_tx = user_tx.clone();
                 let block_info = block_info.clone();
                 let params = params.clone();
-
                 handles.push(tokio::task::spawn(async move {
-                    sim_arb(&client.clone(), user_tx, &block_info, &params, amount_in).await
+                    sim_arb(
+                        evm,
+                        user_tx,
+                        &block_info,
+                        &params,
+                        amount_in,
+                        start_pair_variant,
+                        end_pair_variant,
+                    )
+                    .await
                 }));
             }
             let revenues = future::join_all(handles).await;
@@ -304,6 +334,8 @@ async fn step_arb(
                 range,
                 intervals,
                 Some(depth + 1),
+                start_pair_variant,
+                end_pair_variant,
             )
             .await;
         }
@@ -317,6 +349,8 @@ async fn step_arb(
             range,
             intervals,
             Some(0),
+            start_pair_variant,
+            end_pair_variant,
         )
         .await;
     }
@@ -329,112 +363,139 @@ pub async fn find_optimal_backrun_amount_in_out(
     event: &EventHistory,
     block_info: &BlockInfo,
 ) -> Result<Vec<SimArbResult>> {
+    let start_balance = braindance_starting_balance();
     let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
-    // let mut results_inner = vec![];
-    let results = Arc::new(Mutex::new(Vec::new()));
-    let tasks: Vec<_> = params
-        .iter()
-        .map(|params| async {
-            // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
-            let amount_in_start = if params.token_in == params.tokens.weth {
-                if params.token0_is_weth {
-                    params.amount0_sent.into_raw()
-                } else {
-                    params.amount1_sent.into_raw()
-                }
+    info!("params {:?}", params);
+
+    // look at price (TKN/ETH) on each exchange to determine which exchange to arb on
+    // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
+
+    let mut pool_handles = vec![];
+    for params in params {
+        if params.arb_pools.len() == 0 {
+            continue;
+        }
+        // assume the last pool in arb_pools (whose order is derived from event logs) is the one we want to arb on
+        // TODO: arb on multiple pools if they don't touch the same pair contracts
+        let other_pool = params.arb_pools[params.arb_pools.len() - 1];
+        let mut evm = fork_evm(client, block_info)
+            .await
+            .expect("failed to fork evm");
+
+        let alt_price = match params.pool_variant {
+            PoolVariant::UniswapV2 => {
+                sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm)
+                    .await
+                    .expect("sim_price_v3 panicked")
+            }
+            PoolVariant::UniswapV3 => {
+                sim_price_v2(other_pool, params.token_in, params.token_out, &mut evm)
+                    .await
+                    .expect("sim_price_v2 panicked")
+            }
+        };
+        debug!("alt price {:?}", alt_price);
+
+        let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
+            // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
+            /* NOTE: ASSUME THAT WE'RE ALWAYS SWAPPING __BETWEEN__ VARIANTS. */
+            if params.price.gt(&alt_price) {
+                (params.pool, params.pool_variant, other_pool)
             } else {
-                if params.token0_is_weth {
-                    params.amount1_sent.into_raw() * params.price
-                } else {
-                    params.amount0_sent.into_raw() * params.price
-                }
-            };
-            let initial_range = [0.into(), amount_in_start];
+                (other_pool, params.pool_variant.other(), params.pool)
+            }
+        } else {
+            // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
+            if params.price.gt(&alt_price) {
+                (other_pool, params.pool_variant.other(), params.pool)
+            } else {
+                (params.pool, params.pool_variant, other_pool)
+            }
+        };
 
-            let client = client.clone();
-            let user_tx = user_tx.clone();
-            let block_info = block_info.clone();
-            let params = params.clone();
-            let results = results.clone();
-            tokio::spawn(async move {
-                /*
+        // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
+        let amount_in_start = if params.token_in == params.tokens.weth {
+            if params.token0_is_weth {
+                params.amount0_sent.into_raw()
+            } else {
+                params.amount1_sent.into_raw()
+            }
+        } else {
+            if params.token0_is_weth {
+                params.amount1_sent.into_raw() * params.price
+            } else {
+                params.amount0_sent.into_raw() * params.price
+            }
+        };
+        let initial_range = [0.into(), amount_in_start];
 
-
-
-
-
-                        hey
-
-
-
-
-
-                */
-                let res = step_arb(
-                    client.clone(),
-                    user_tx,
-                    block_info,
-                    params.to_owned(),
-                    None,
-                    initial_range,
-                    STEP_INTERVALS,
-                    None,
-                )
-                .await;
-                // TODO: here, log the result to a file
-                debug!("*** step_arb complete: {:?}", res);
-                if let Ok(res) = res {
-                    let mut results = results.lock().await;
-                    results.push(SimArbResult {
+        let client = client.clone();
+        let user_tx = user_tx.clone();
+        let block_info = block_info.clone();
+        let params = params.clone();
+        let handle = tokio::spawn(async move {
+            // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
+            let res = step_arb(
+                client.clone(),
+                user_tx,
+                block_info,
+                params.to_owned(),
+                None,
+                initial_range,
+                STEP_INTERVALS,
+                None,
+                (start_pool, start_pool_variant),
+                (end_pool, start_pool_variant.other()),
+            )
+            .await;
+            debug!("*** step_arb complete: {:?}", res);
+            if let Ok(res) = res {
+                Some(SimArbResult {
+                    user_trade: params,
+                    backrun_trade: BackrunResult {
                         amount_in: res.0,
                         balance_end: res.1,
-                        trade_params: params,
-                    });
-                }
-            })
-            .await
-        })
-        .collect();
-    future::join_all(tasks).await;
-    let results = results.lock().await;
-    Ok(results.to_vec())
+                        profit: if res.1 > start_balance {
+                            res.1 - start_balance
+                        } else {
+                            0.into()
+                        },
+                        start_pool: start_pool,
+                        end_pool: end_pool,
+                        arb_variant: start_pool_variant.other(),
+                    },
+                })
+            } else {
+                None
+            }
+        });
+        pool_handles.push(handle);
+    }
+    // Ok(pool_handles)
+    let results: Vec<_> = future::join_all(pool_handles).await;
+    Ok(results
+        .into_iter()
+        .filter(|res| res.is_ok())
+        .map(|res| res.unwrap())
+        .filter(|res| res.is_some())
+        .map(|res| res.to_owned().unwrap())
+        .collect::<Vec<_>>()
+        .to_vec())
 }
 
 /// Simulate a two-step arbitrage on a forked EVM.
 pub async fn sim_arb(
-    client: &WsClient,
+    mut evm: EVM<ForkDB>,
     user_tx: Transaction,
     block_info: &BlockInfo,
     params: &UserTradeParams,
     amount_in: U256,
+    start_pair_variant: (Address, PoolVariant),
+    end_pair_variant: (Address, PoolVariant),
 ) -> Result<(U256, U256)> {
-    let mut evm = fork_evm(client, block_info).await?;
+    let (start_pool, start_variant) = start_pair_variant;
+    let (end_pool, end_variant) = end_pair_variant;
     sim_bundle(&mut evm, vec![user_tx.to_owned()]).await?;
-
-    // look at price (TKN/ETH) on each exchange to determine trade direction
-    // if priceA > priceB after user tx creates price impact, then buy TKN on exchange B and sell on exchange A
-    let mut other_pools = get_other_pair_addresses(
-        client,
-        (params.token_in, params.token_out),
-        params.pool_variant,
-    )
-    .await?;
-    other_pools.sort_by(|a, b| b.cmp(a)); // sort so that 0 address would be last; if it exists, non-0 address will be first
-    let other_pool = other_pools[0];
-    if other_pool == H160::zero() {
-        return Err(HindsightError::PoolNotFound(params.pool).into());
-    } else {
-        debug!("other pool found: {:?}", other_pool);
-    }
-    let alt_price = match params.pool_variant {
-        PoolVariant::UniswapV2 => {
-            sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm).await?
-        }
-        PoolVariant::UniswapV3 => {
-            sim_price_v2(other_pool, params.token_in, params.token_out, &mut evm).await?
-        }
-    };
-    debug!("alt price {:?}", alt_price);
 
     /*
     - if the price is denoted in TKN/ETH, we want to buy where the price is highest
@@ -442,26 +503,10 @@ pub async fn sim_arb(
     - price is always denoted in tkn1/tkn0
     */
 
-    let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
-        // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
-        if params.price.gt(&alt_price) {
-            (params.pool, params.pool_variant, other_pool)
-        } else {
-            (other_pool, params.pool_variant.other(), params.pool)
-        }
-    } else {
-        // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
-        if params.price.gt(&alt_price) {
-            (other_pool, params.pool_variant.other(), params.pool)
-        } else {
-            (params.pool, params.pool_variant, other_pool)
-        }
-    };
-
     /* Buy tokens on one exchange. */
     let res = commit_braindance_swap(
         &mut evm,
-        start_pool_variant,
+        start_variant,
         amount_in,
         start_pool,
         params.tokens.weth,
@@ -476,7 +521,7 @@ pub async fn sim_arb(
     /* Sell them on other exchange. */
     let res = commit_braindance_swap(
         &mut evm,
-        start_pool_variant.other(),
+        end_variant,
         amount_received,
         end_pool,
         params.tokens.token,

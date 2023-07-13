@@ -1,4 +1,5 @@
 use crate::error::HindsightError;
+use crate::interfaces::SimArbResultBatch;
 use crate::{info, Error, Result};
 use crate::{sim::core::find_optimal_backrun_amount_in_out, util::WsClient};
 use ethers::{
@@ -15,7 +16,7 @@ pub async fn simulate_backrun(
     client: &WsClient,
     tx: Transaction,
     event_map: H256Map<EventHistory>,
-) -> Result<U256> {
+) -> Result<SimArbResultBatch> {
     let event = event_map
         .get(&tx.hash)
         .ok_or::<Error>(HindsightError::EventNotCached(tx.hash).into())?;
@@ -37,15 +38,21 @@ pub async fn simulate_backrun(
 
     let res = find_optimal_backrun_amount_in_out(&client, tx, &event, &block_info).await?;
     let mut profit = U256::from(0);
-    for res in res {
-        if res.balance_end > braindance_starting_balance() {
+    /*
+       Sum up the profit from each result. Generally there should only be one result, but if
+       there are >1 results, we assume that we'd do both backruns in one tx.
+    */
+    for res in &res {
+        if res.backrun_trade.profit > 0.into() {
             info!(
-                "PROFIT: input={:?}\tend_balance={:?}",
-                res.amount_in, res.balance_end
+                "sim was profitable: input={:?}\tend_balance={:?}",
+                res.backrun_trade.amount_in, res.backrun_trade.balance_end
             );
-            // return Ok(Some(res.1));
-            profit += res.balance_end - braindance_starting_balance();
+            profit += res.backrun_trade.balance_end - braindance_starting_balance();
         }
     }
-    Ok(profit)
+    Ok(SimArbResultBatch {
+        total_profit: profit,
+        results: res,
+    })
 }

@@ -3,9 +3,24 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SimArbResult {
+    pub user_trade: UserTradeParams,
+    pub backrun_trade: BackrunResult,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct BackrunResult {
     pub amount_in: U256,
     pub balance_end: U256,
-    pub trade_params: UserTradeParams,
+    pub profit: U256,
+    pub start_pool: Address,
+    pub end_pool: Address,
+    pub arb_variant: PoolVariant,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SimArbResultBatch {
+    pub results: Vec<SimArbResult>,
+    pub total_profit: U256,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy)]
@@ -35,6 +50,7 @@ pub struct UserTradeParams {
     pub pool: Address,
     pub price: U256,
     pub tokens: TokenPair,
+    pub arb_pools: Vec<Address>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
