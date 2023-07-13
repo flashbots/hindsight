@@ -7,7 +7,6 @@ use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 use futures::future;
 use mev_share_sse::{EventHistory, EventTransactionLog};
-use rayon::prelude::*;
 use revm::primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256};
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
@@ -19,8 +18,6 @@ use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
@@ -263,17 +260,15 @@ async fn step_arb(
         });
     }
     // returns best (in, out) amounts
-    let best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into())); // (0, 0) is default assignment on initial call
-    let best_amount_in_out = Arc::new(Mutex::new(best_amount_in_out));
+    let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into())); // (0, 0) is default assignment on initial call
 
     if let Some(depth) = depth {
         // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
-        let mut best_amount_in_out = best_amount_in_out.lock().await;
         if depth > MAX_DEPTH
             || (best_amount_in_out.0 > U256::from(0)
                 && best_amount_in_out.0 < (U256::from(180_000) * block_info.base_fee))
         {
-            return Ok(*best_amount_in_out);
+            return Ok(best_amount_in_out);
         } else {
             // run sims with current params
             let mut handles = vec![];
@@ -291,7 +286,7 @@ async fn step_arb(
             }
             let revenues = future::join_all(handles).await;
             let revenue_len = revenues.len();
-            let num_reverts = Arc::new(Mutex::new(0));
+            let mut num_reverts = 0;
 
             for result in revenues {
                 // let result = result?;
@@ -300,7 +295,7 @@ async fn step_arb(
                     if let Ok(result) = result {
                         let (amount_in, balance_out) = result;
                         if balance_out > best_amount_in_out.1 {
-                            *best_amount_in_out = (amount_in, balance_out);
+                            best_amount_in_out = (amount_in, balance_out);
                             info!(
                                 "new best (amount_in, balance_out): {:?}",
                                 best_amount_in_out
@@ -312,16 +307,14 @@ async fn step_arb(
                         if err.contains("no other pool found") {
                             return result;
                         } else if err.contains("swap reverted") {
-                            let mut n_reverts = num_reverts.lock().await;
-                            *n_reverts += 1;
+                            num_reverts += 1;
                         }
                         // TODO: use real error types, not this garbage
                     }
                 } else {
                     return Err(anyhow::anyhow!("system error in step_arb"));
                 }
-                let n_reverts = num_reverts.lock().await;
-                if n_reverts.to_owned() == revenue_len {
+                if num_reverts == revenue_len {
                     return Err(anyhow::anyhow!("all swaps reverted"));
                 }
             }
@@ -345,7 +338,7 @@ async fn step_arb(
                 user_tx,
                 block_info,
                 params,
-                Some(*best_amount_in_out),
+                Some(best_amount_in_out),
                 range,
                 intervals,
                 Some(depth + 1),
@@ -353,13 +346,12 @@ async fn step_arb(
             .await;
         }
     } else {
-        let best_thing = best_amount_in_out.lock().await;
         return step_arb(
             client,
             user_tx,
             block_info,
             params,
-            Some(*best_thing),
+            Some(best_amount_in_out),
             range,
             intervals,
             Some(0),
