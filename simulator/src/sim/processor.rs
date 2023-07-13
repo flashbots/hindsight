@@ -7,12 +7,12 @@ use ethers::{
     types::{Transaction, H256, U256},
 };
 use mev_share_sse::EventHistory;
-use rusty_sando::{simulate::braindance_starting_balance, types::BlockInfo};
+use rusty_sando::types::BlockInfo;
 use std::collections::HashMap;
 
 pub type H256Map<T> = HashMap<H256, T>;
 
-pub async fn simulate_backrun(
+pub async fn simulate_backrun_arbs(
     client: &WsClient,
     tx: Transaction,
     event_map: H256Map<EventHistory>,
@@ -37,22 +37,22 @@ pub async fn simulate_backrun(
     };
 
     let res = find_optimal_backrun_amount_in_out(&client, tx, &event, &block_info).await?;
-    let mut profit = U256::from(0);
+    let mut max_profit = U256::from(0);
     /*
        Sum up the profit from each result. Generally there should only be one result, but if
        there are >1 results, we assume that we'd do both backruns in one tx.
     */
     for res in &res {
-        if res.backrun_trade.profit > 0.into() {
+        if res.backrun_trade.profit > max_profit {
             info!(
                 "sim was profitable: input={:?}\tend_balance={:?}",
                 res.backrun_trade.amount_in, res.backrun_trade.balance_end
             );
-            profit += res.backrun_trade.balance_end - braindance_starting_balance();
+            max_profit = res.backrun_trade.profit;
         }
     }
     Ok(SimArbResultBatch {
-        total_profit: profit,
+        max_profit,
         results: res,
     })
 }

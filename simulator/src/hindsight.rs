@@ -1,13 +1,19 @@
 use crate::{
     config::Config,
-    data::{self, read_events, read_txs, write_txs},
+    data::{
+        self,
+        events::read_events,
+        txs::{read_txs, write_txs},
+        Db,
+    },
     info,
     scanner::fetch_latest_events,
-    sim::processor::{simulate_backrun, H256Map},
+    sim::processor::{simulate_backrun_arbs, H256Map},
     util::{fetch_txs, get_ws_client, WsClient},
     Result,
 };
 use ethers::types::Transaction;
+use futures::future;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
 mod factory {
@@ -87,7 +93,7 @@ impl HindsightFactory {
                 let events = fetch_latest_events(&event_client, options.clone().into()).await?;
                 info!("Found {} events", events.len());
                 // save events to file
-                data::write_events(&events, options.filename.to_owned()).await?;
+                data::events::write_events(&events, options.filename.to_owned()).await?;
                 // fetch txs for events, save to file
                 let cache_txs = fetch_and_write_txs(&client, &events, options.filename).await?;
                 Ok(Hindsight {
@@ -120,10 +126,15 @@ impl Hindsight {
     pub fn new() -> HindsightFactory {
         HindsightFactory::new()
     }
+    /// Process all transactions in `txs` taking `batch_size` at a time to run
+    /// in parallel.
+    ///
+    /// Saves results into DB after each batch.
     pub async fn process_orderflow(
         self,
         txs: Option<Vec<Transaction>>,
         batch_size: usize,
+        db: Box<Db>,
     ) -> Result<()> {
         let txs = if let Some(txs) = txs {
             txs
@@ -146,13 +157,20 @@ impl Hindsight {
                 let client = self.client.clone();
                 let event_map = self.event_map.clone();
                 handlers.push(tokio::spawn(async move {
-                    simulate_backrun(&client, tx, event_map).await
+                    simulate_backrun_arbs(&client, tx, event_map).await.ok()
                 }));
             }
-            for handler in handlers {
-                let res = handler.await?;
-                info!("{:#?}", res);
-            }
+            let results = future::join_all(handlers).await;
+            let results = results
+                .into_iter()
+                .filter(|res| res.is_ok())
+                .map(|res| res.unwrap())
+                .filter(|res| res.is_some())
+                .map(|res| res.unwrap())
+                .collect::<Vec<_>>();
+            // TODO: save batch to DB
+            info!("batch results: {:#?}", results);
+            db.to_owned().write_arbs(results).await?;
         }
         Ok(())
     }

@@ -1,17 +1,87 @@
-use crate::{debug, error::HindsightError, util::get_price_v3, Error, Result};
+use crate::{
+    debug, error::HindsightError, interfaces::PoolVariant, util::get_price_v3, Error, Result,
+};
 use ethers::{
     abi::{self, ParamType},
     prelude::abigen,
-    types::{Address, Bytes, Transaction, TransactionRequest, U256, U64},
+    types::{Address, Bytes, Transaction, TransactionRequest, I256, U256, U64},
 };
 use revm::{
     primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256},
     EVM,
 };
 use rusty_sando::{
-    prelude::fork_db::ForkDB, types::SimulationError, utils::constants::get_eth_dev,
+    prelude::fork_db::ForkDB,
+    simulate::{braindance_address, braindance_controller_address},
+    types::SimulationError,
+    utils::{constants::get_eth_dev, tx_builder::braindance},
 };
 use std::{ops::Mul, str::FromStr};
+
+/// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.
+///
+/// Returns balance of token_out after tx is executed.
+pub fn commit_braindance_swap(
+    evm: &mut EVM<ForkDB>,
+    pool_variant: PoolVariant,
+    amount_in: U256,
+    target_pool: Address,
+    token_in: Address,
+    token_out: Address,
+    base_fee: U256,
+    _nonce: Option<u64>,
+) -> Result<U256> {
+    let swap_data = match pool_variant {
+        PoolVariant::UniswapV2 => {
+            braindance::build_swap_v2_data(amount_in, target_pool, token_in, token_out)
+        }
+        PoolVariant::UniswapV3 => braindance::build_swap_v3_data(
+            I256::from_raw(amount_in),
+            target_pool,
+            token_in,
+            token_out,
+        ),
+    };
+
+    evm.env.tx.caller = braindance_controller_address();
+    evm.env.tx.transact_to = TransactTo::Call(braindance_address().0.into());
+    evm.env.tx.data = swap_data.0;
+    evm.env.tx.gas_limit = 700000;
+    evm.env.tx.gas_price = base_fee.into();
+    evm.env.tx.value = rU256::ZERO;
+
+    let res = match evm.transact_commit() {
+        Ok(res) => res,
+        Err(e) => return Err(anyhow::anyhow!("failed to commit swap: {:?}", e)),
+    };
+    let output = match res.to_owned() {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Call(o) => o,
+            Output::Create(o, _) => o,
+        },
+        ExecutionResult::Revert { output, gas_used } => {
+            return Err(anyhow::anyhow!(
+                "swap reverted: {:?} (gas used: {:?})",
+                output,
+                gas_used
+            ))
+        }
+        ExecutionResult::Halt { reason, .. } => {
+            return Err(anyhow::anyhow!("swap halted: {:?}", reason))
+        }
+    };
+    let (_amount_out, balance) = match pool_variant {
+        PoolVariant::UniswapV2 => match braindance::decode_swap_v2_result(output.into()) {
+            Ok(output) => output,
+            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
+        },
+        PoolVariant::UniswapV3 => match braindance::decode_swap_v3_result(output.into()) {
+            Ok(output) => output,
+            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
+        },
+    };
+    Ok(balance)
+}
 
 /// returns price of token1/token0 in forked EVM.
 pub async fn sim_price_v3(

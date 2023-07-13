@@ -1,6 +1,6 @@
 use crate::error::HindsightError;
 use crate::interfaces::{BackrunResult, PoolVariant, SimArbResult, TokenPair, UserTradeParams};
-use crate::sim::evm::{sim_bundle, sim_price_v2, sim_price_v3};
+use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
 use crate::util::{
     get_other_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
 };
@@ -11,15 +11,13 @@ use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
 use futures::future;
 use mev_share_sse::{EventHistory, EventTransactionLog};
-use revm::primitives::{ExecutionResult, Output, TransactTo, U256 as rU256};
+use revm::primitives::U256 as rU256;
 use revm::EVM;
 use rusty_sando::prelude::fork_db::ForkDB;
 use rusty_sando::simulate::{
-    attach_braindance_module, braindance_address, braindance_controller_address,
-    braindance_starting_balance, setup_block_state,
+    attach_braindance_module, braindance_starting_balance, setup_block_state,
 };
 use rusty_sando::types::BlockInfo;
-use rusty_sando::utils::tx_builder::braindance;
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -177,7 +175,6 @@ async fn derive_trade_params(
                 .into_iter()
                 .filter(|pool| !pool.is_zero())
                 .collect();
-        println!("arb_pools: {:?}", arb_pools);
         trade_params.push(UserTradeParams {
             pool_variant,
             token_in,
@@ -262,7 +259,7 @@ async fn step_arb(
                 let block_info = block_info.clone();
                 let params = params.clone();
                 handles.push(tokio::task::spawn(async move {
-                    sim_arb(
+                    sim_arb_single(
                         evm,
                         user_tx,
                         &block_info,
@@ -379,19 +376,18 @@ pub async fn find_optimal_backrun_amount_in_out(
                                            / \       / \ \
                                           /   \     /   \ \
                                          /     \   /     \ ...
-       pool_handles <--(bg thread) <--[ pool,pool,pool,pool ]
+    [pool_handles] <--bg thread <-- ... pool,pool,pool,pool
 
-            Simulate an arb for every pool and throw out the ones that
-            don't turn a profit.
+    Simulate an arb for every pool and throw out the ones that
+    don't turn a profit.
 
-            `pool_handles` will hold the joinable background thread handlers,
-            each of which will return a result. Each handle is responsible for
-            determining whether it was profitable, and terminating its execution
-            early if it finds a failure case.
-
-            When we join the results, we'll filter out the error/null values,
-            which leaves us with only the profitable sims.
-        */
+    `pool_handles` will hold the joinable background thread handlers,
+    each of which will return a result. Each handle is responsible for
+    determining whether it was profitable, and terminating its execution
+    early if it finds a failure case.
+    When we join the results, we'll filter out the error/null values,
+    which leaves us with only the profitable sims.
+    */
     for params in params {
         if params.arb_pools.len() == 0 {
             continue;
@@ -483,7 +479,8 @@ pub async fn find_optimal_backrun_amount_in_out(
                             },
                             start_pool: start_pool,
                             end_pool: end_pool,
-                            arb_variant: start_pool_variant.other(),
+                            start_variant: start_pool_variant,
+                            end_variant: start_pool_variant.other(),
                         },
                     })
                 } else {
@@ -506,8 +503,12 @@ pub async fn find_optimal_backrun_amount_in_out(
         .to_vec())
 }
 
-/// Simulate a two-step arbitrage on a forked EVM.
-pub async fn sim_arb(
+/// Simulate a two-step arbitrage on a forked EVM with fixed trade amount & path.
+///
+/// 1. Buy `amount_in` WETH worth of token on `start_pair_variant.0`
+///
+/// 2. Sell balance of token on `end_pair_variant.0` for WETH, completing the arb.
+async fn sim_arb_single(
     mut evm: EVM<ForkDB>,
     user_tx: Transaction,
     block_info: &BlockInfo,
@@ -554,71 +555,6 @@ pub async fn sim_arb(
     )?;
     debug!("braindance 2 completed. {:?}", res);
     Ok((amount_in, res))
-}
-
-/// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.
-///
-/// Returns balance of token_out after tx is executed.
-pub fn commit_braindance_swap(
-    evm: &mut EVM<ForkDB>,
-    pool_variant: PoolVariant,
-    amount_in: U256,
-    target_pool: Address,
-    token_in: Address,
-    token_out: Address,
-    base_fee: U256,
-    _nonce: Option<u64>,
-) -> Result<U256> {
-    let swap_data = match pool_variant {
-        PoolVariant::UniswapV2 => {
-            braindance::build_swap_v2_data(amount_in, target_pool, token_in, token_out)
-        }
-        PoolVariant::UniswapV3 => braindance::build_swap_v3_data(
-            I256::from_raw(amount_in),
-            target_pool,
-            token_in,
-            token_out,
-        ),
-    };
-
-    evm.env.tx.caller = braindance_controller_address();
-    evm.env.tx.transact_to = TransactTo::Call(braindance_address().0.into());
-    evm.env.tx.data = swap_data.0;
-    evm.env.tx.gas_limit = 700000;
-    evm.env.tx.gas_price = base_fee.into();
-    evm.env.tx.value = rU256::ZERO;
-
-    let res = match evm.transact_commit() {
-        Ok(res) => res,
-        Err(e) => return Err(anyhow::anyhow!("failed to commit swap: {:?}", e)),
-    };
-    let output = match res.to_owned() {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Call(o) => o,
-            Output::Create(o, _) => o,
-        },
-        ExecutionResult::Revert { output, gas_used } => {
-            return Err(anyhow::anyhow!(
-                "swap reverted: {:?} (gas used: {:?})",
-                output,
-                gas_used
-            ))
-        }
-        ExecutionResult::Halt { reason, .. } => {
-            return Err(anyhow::anyhow!("swap halted: {:?}", reason))
-        }
-    };
-    let (_amount_out, balance) = match pool_variant {
-        PoolVariant::UniswapV2 => match braindance::decode_swap_v2_result(output.into()) {
-            Ok(output) => output,
-            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
-        },
-        PoolVariant::UniswapV3 => match braindance::decode_swap_v3_result(output.into()) {
-            Ok(output) => output,
-            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
-        },
-    };
-    Ok(balance)
 }
 
 #[cfg(test)]

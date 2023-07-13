@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::data::Db;
 use crate::hindsight::{Hindsight, HindsightOptions, LoadOptions};
 use crate::Result;
 use ethers::types::H256;
@@ -11,6 +12,7 @@ pub async fn run(batch_size: Option<usize>, config: Config) -> Result<()> {
             HindsightOptions::Load(LoadOptions { filename: None }),
         )
         .await?;
+    let db = Db::new(None).init().await?;
     debug!("cache events: {:?}", hindsight.event_map.len());
     debug!("cache txs: {:?}", hindsight.cache_txs.len());
     let juicy_tx_hash: H256 =
@@ -23,7 +25,7 @@ pub async fn run(batch_size: Option<usize>, config: Config) -> Result<()> {
         .to_owned();
 
     hindsight
-        .process_orderflow(Some(vec![juicy_tx]), batch_size.unwrap_or(1))
+        .process_orderflow(Some(vec![juicy_tx]), batch_size.unwrap_or(1), Box::new(db))
         .await?;
     Ok(())
 }
