@@ -1,7 +1,7 @@
 use crate::error::HindsightError;
-use crate::info;
 use crate::sim::evm::{sim_price_v2, sim_price_v3};
 use crate::Result;
+use crate::{debug, info, warn};
 use async_recursion::async_recursion;
 use ethers::providers::Middleware;
 use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
@@ -18,6 +18,8 @@ use rusty_sando::types::BlockInfo;
 use rusty_sando::utils::tx_builder::braindance;
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 // use crate::data::HistoricalEvent;
@@ -76,7 +78,8 @@ pub struct TokenPair {
     pub token: Address,
 }
 
-/// Returns None if trade params can't be derived
+/// Returns None if trade params can't be derived.
+///
 /// May derive multiple trades from a single tx.
 async fn derive_trade_params(
     client: &WsClient,
@@ -233,10 +236,10 @@ async fn derive_trade_params(
 /// Recursively finds the best possible arbitrage trade for a given set of params.
 #[async_recursion]
 async fn step_arb(
-    client: &WsClient,
-    user_tx: &Transaction,
-    block_info: &BlockInfo,
-    params: &UserTradeParams,
+    client: WsClient,
+    user_tx: Transaction,
+    block_info: BlockInfo,
+    params: UserTradeParams,
     best_amount_in_out: Option<(U256, U256)>,
     range: [U256; 2],
     intervals: usize,
@@ -268,6 +271,7 @@ async fn step_arb(
             || (best_amount_in_out.0 > U256::from(0)
                 && best_amount_in_out.0 < (U256::from(180_000) * block_info.base_fee))
         {
+            info!("depth limit reached or profit too low, finishing early");
             return Ok(best_amount_in_out);
         } else {
             // run sims with current params
@@ -289,21 +293,20 @@ async fn step_arb(
             let mut num_reverts = 0;
 
             for result in revenues {
-                // let result = result?;
                 if let Ok(result) = result {
-                    info!("*** result_outer {:?}", result);
+                    // info!("*** revenue result {:?}", result);
                     if let Ok(result) = result {
                         let (amount_in, balance_out) = result;
                         if balance_out > best_amount_in_out.1 {
                             best_amount_in_out = (amount_in, balance_out);
-                            info!(
+                            debug!(
                                 "new best (amount_in, balance_out): {:?}",
                                 best_amount_in_out
                             );
                         }
                     } else {
                         let err = result.as_ref().unwrap_err().to_string();
-                        println!("err: {}", err);
+                        warn!("{}", err);
                         if err.contains("no other pool found") {
                             return result;
                         } else if err.contains("swap reverted") {
@@ -311,9 +314,10 @@ async fn step_arb(
                         }
                         // TODO: use real error types, not this garbage
                     }
-                } else {
-                    return Err(anyhow::anyhow!("system error in step_arb"));
                 }
+                // else {
+                //     return Err(anyhow::anyhow!("system error in step_arb"));
+                // }
                 if num_reverts == revenue_len {
                     return Err(anyhow::anyhow!("all swaps reverted"));
                 }
@@ -375,47 +379,62 @@ pub async fn find_optimal_backrun_amount_in_out(
     block_info: &BlockInfo,
 ) -> Result<Vec<SimArbResult>> {
     let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
-    // let params = params.ok_or(anyhow::anyhow!("no arb params were generated for tx"))?;
-    let mut results = vec![];
-    for params in params {
-        // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
-        let amount_in_start = if params.token_in == params.tokens.weth {
-            if params.token0_is_weth {
-                params.amount0_sent.into_raw()
+    // let mut results_inner = vec![];
+    let results = Arc::new(Mutex::new(Vec::new()));
+    let tasks: Vec<_> = params
+        .iter()
+        .map(|params| async {
+            // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
+            let amount_in_start = if params.token_in == params.tokens.weth {
+                if params.token0_is_weth {
+                    params.amount0_sent.into_raw()
+                } else {
+                    params.amount1_sent.into_raw()
+                }
             } else {
-                params.amount1_sent.into_raw()
-            }
-        } else {
-            if params.token0_is_weth {
-                params.amount1_sent.into_raw() * params.price
-            } else {
-                params.amount0_sent.into_raw() * params.price
-            }
-        };
-        let initial_range = [0.into(), amount_in_start];
+                if params.token0_is_weth {
+                    params.amount1_sent.into_raw() * params.price
+                } else {
+                    params.amount0_sent.into_raw() * params.price
+                }
+            };
+            let initial_range = [0.into(), amount_in_start];
 
-        let res = step_arb(
-            client,
-            &user_tx,
-            block_info,
-            &params,
-            None,
-            initial_range,
-            STEP_INTERVALS,
-            None,
-        )
-        .await;
-        info!("*** res_top: {:?}", res);
-        if let Ok(res) = res {
-            results.push(SimArbResult {
-                amount_in: res.0,
-                balance_end: res.1,
-                trade_params: params,
-            });
-        }
-    }
-
-    Ok(results)
+            let client = client.clone();
+            let user_tx = user_tx.clone();
+            let block_info = block_info.clone();
+            let params = params.clone();
+            let results = results.clone();
+            tokio::spawn(async move {
+                let res = step_arb(
+                    client.clone(),
+                    user_tx,
+                    block_info,
+                    params.to_owned(),
+                    None,
+                    initial_range,
+                    STEP_INTERVALS,
+                    None,
+                )
+                .await;
+                info!("*** step_arb complete: {:?}", res);
+                if let Ok(res) = res {
+                    let mut results = results.lock().await;
+                    let mut results_cp = results.to_vec();
+                    results_cp.push(SimArbResult {
+                        amount_in: res.0,
+                        balance_end: res.1,
+                        trade_params: params,
+                    });
+                    *results = results_cp;
+                }
+            })
+            .await
+        })
+        .collect();
+    future::join_all(tasks).await;
+    let results = results.lock().await;
+    Ok(results.to_vec())
 }
 
 /// Simulate a two-step arbitrage on a forked EVM.

@@ -8,4 +8,4 @@ pub mod sim;
 pub mod util;
 
 pub use anyhow::Result;
-pub use tracing::info;
+pub use tracing::{debug, error as log_error, info, warn};
