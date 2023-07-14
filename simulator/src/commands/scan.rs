@@ -20,11 +20,11 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let mut done = false;
     let mut event_params: EventHistoryParams = params.clone().into();
 
-    event_params.limit = None;
+    let batch_size = params.batch_size.unwrap_or(5);
+    event_params.limit = Some(batch_size as u64);
     event_params.offset = Some(0);
 
     let db = Db::new(None).init().await?;
-    let batch_size = params.batch_size.unwrap_or(1);
     info!("batch size: {}", batch_size);
     while !done {
         // fetch events

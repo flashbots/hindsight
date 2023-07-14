@@ -112,7 +112,10 @@ impl Hindsight {
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
             if let Some(db) = db.to_owned() {
-                db.to_owned().write_arbs(results).await?;
+                // can't do && with a `let` in the conditional
+                if !results.is_empty() {
+                    db.to_owned().write_arbs(results).await?;
+                }
             }
         }
         Ok(())
