@@ -134,7 +134,7 @@ impl Hindsight {
         self,
         txs: Option<Vec<Transaction>>,
         batch_size: usize,
-        db: Box<Db>,
+        db: Option<Box<Db>>,
     ) -> Result<()> {
         let txs = if let Some(txs) = txs {
             txs
@@ -168,9 +168,10 @@ impl Hindsight {
                 .filter(|res| res.is_some())
                 .map(|res| res.unwrap())
                 .collect::<Vec<_>>();
-            // TODO: save batch to DB
             info!("batch results: {:#?}", results);
-            db.to_owned().write_arbs(results).await?;
+            if let Some(db) = db.to_owned() {
+                db.to_owned().write_arbs(results).await?;
+            }
         }
         Ok(())
     }
