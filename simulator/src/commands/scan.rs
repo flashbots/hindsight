@@ -42,7 +42,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
             .to_owned()
             .process_orderflow(&txs, batch_size, Some(Box::new(db.to_owned())), event_map)
             .await?;
-        info!("pretended to simulate arbs for {} transactions", txs.len());
+        info!("simulated arbs for {} transactions", txs.len());
         event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
         println!("offset: {}", event_params.offset.unwrap());
         done = events.len() < event_params.limit.unwrap_or(500) as usize;
