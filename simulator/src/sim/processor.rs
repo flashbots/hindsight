@@ -15,7 +15,7 @@ pub type H256Map<T> = HashMap<H256, T>;
 pub async fn simulate_backrun_arbs(
     client: &WsClient,
     tx: Transaction,
-    event_map: H256Map<EventHistory>,
+    event_map: &H256Map<EventHistory>,
 ) -> Result<SimArbResultBatch> {
     let event = event_map
         .get(&tx.hash)

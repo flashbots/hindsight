@@ -1,4 +1,4 @@
-use crate::{config::Config, interfaces::PoolVariant, Result};
+use crate::{config::Config, info, interfaces::PoolVariant, Result};
 use ethers::{
     prelude::{abigen, H160},
     providers::{Middleware, Provider, Ws},
@@ -24,40 +24,39 @@ pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {
 }
 
 pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<Vec<Transaction>> {
-    let tx_hashes: Vec<H256> = events
-        .into_iter()
-        .map(|e: &EventHistory| e.hint.hash)
-        .collect();
-    let mut full_txs = vec![];
-    let mut handles: Vec<_> = vec![];
+    let tx_hashes: Vec<H256> = events.iter().map(|e: &EventHistory| e.hint.hash).collect();
+    let mut handles = vec![];
 
     for tx_hash in tx_hashes.into_iter() {
         let client = client.clone();
-        handles.push(tokio::spawn(future::lazy(move |_| async move {
+        handles.push(tokio::spawn(async move {
             let tx = &client.get_transaction(tx_hash.to_owned()).await;
             if let Ok(tx) = tx {
-                println!("tx found: {:?}", tx_hash.to_owned());
                 if let Some(tx) = tx {
+                    info!("tx found onchain\t{:?}", tx_hash.to_owned());
                     return Some(tx.clone());
                 } else {
-                    println!("tx not found: {:?}", tx_hash.to_owned());
+                    info!("tx not found onchain\t{:?}", tx_hash.to_owned());
                     None
                 }
             } else {
-                println!("error fetching tx: {:?}", tx);
+                info!("error fetching tx: {:?}", tx);
                 None
             }
-        })));
+        }));
     }
 
-    for handle in handles.into_iter() {
-        let tx = handle.await?.await;
-        if let Some(tx) = tx {
-            full_txs.push(tx);
-        }
-    }
+    let results = future::join_all(handles)
+        .await
+        .into_iter()
+        .filter(|r| r.is_ok())
+        .map(|r| r.unwrap())
+        .filter(|r| r.is_some())
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    println!("results: {:#?}", results);
 
-    Ok(full_txs.to_vec())
+    Ok(results)
 }
 
 pub async fn get_pair_tokens(client: &WsClient, pair: Address) -> Result<(Address, Address)> {

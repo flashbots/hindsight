@@ -6,6 +6,7 @@ use tokio::fs;
 
 const DEFAULT_FILENAME: &'static str = "events.json";
 
+/// Writes events to a file. If no filename is provided, writes to DEFAULT_FILENAME.
 pub async fn write_events(events: &Vec<EventHistory>, filename: Option<String>) -> Result<()> {
     let filename = filename.unwrap_or(DEFAULT_FILENAME.to_string());
     fs::write(filename.to_owned(), serde_json::to_string_pretty(&events)?).await?;

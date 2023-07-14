@@ -2,14 +2,19 @@ use crate::Result;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
 const FLASHBOTS_EVENTS_API_URL: &'static str = "https://mev-share.flashbots.net/api/v1";
-fn event_history_info_url() -> String {
+
+pub fn event_history_info_url() -> String {
     format!("{}/{}", FLASHBOTS_EVENTS_API_URL, "history/info")
 }
-fn event_history_url() -> String {
+pub fn event_history_url() -> String {
     format!("{}/{}", FLASHBOTS_EVENTS_API_URL, "history")
 }
 
-/// note: params.offset is ignored; this function automagically fetches all events in your specified range.
+/// Fetches events from the Flashbots MEV-Share SSE API. Iteratively queries for
+/// events in chunks of `info.max_limit` until all events in the specified range
+/// have been fetched.
+///
+/// TODO: fetch events in parallel
 pub async fn fetch_latest_events(
     client: &EventClient,
     params: EventHistoryParams,
@@ -33,10 +38,9 @@ pub async fn fetch_latest_events(
             )
             .await?;
         let chunk_len = chunk.len() as u64;
-        let limit = params.limit.unwrap_or(500);
         current_offset += chunk_len;
         events.append(&mut chunk);
-        done = chunk_len < limit;
+        done = chunk_len < params.limit.unwrap_or(500);
         println!(
             "Fetched {} events ({} events total)",
             chunk_len,
