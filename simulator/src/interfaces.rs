@@ -1,45 +1,64 @@
-use ethers::types::{Address, I256, U256};
-use serde::{Deserialize, Serialize};
+use ethers::types::{Address, H256, I256, U256};
+use mev_share_sse::{EventHistory, Hint};
+use serde::{self, Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SimArbResult {
-    #[serde(rename = "userTrade")]
     pub user_trade: UserTradeParams,
-    #[serde(rename = "backrunTrade")]
     pub backrun_trade: BackrunResult,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BackrunResult {
-    #[serde(rename = "amountIn")]
     pub amount_in: U256,
-    #[serde(rename = "balanceEnd")]
     pub balance_end: U256,
     pub profit: U256,
-    #[serde(rename = "startPool")]
     pub start_pool: Address,
-    #[serde(rename = "endPool")]
     pub end_pool: Address,
-    #[serde(rename = "startVariant")]
     pub start_variant: PoolVariant,
-    #[serde(rename = "endVariant")]
     pub end_variant: PoolVariant,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SimArbResultBatch {
+    pub event: EventHistory,
     pub results: Vec<SimArbResult>,
-    #[serde(rename = "maxProfit")]
     pub max_profit: U256,
 }
 
-impl SimArbResultBatch {
-    pub fn test_example() -> Self {
-        Self {
-            results: vec![],
-            max_profit: 0x1337.into(),
-        }
-    }
+/// Information derived from user's trade tx.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserTradeParams {
+    pub pool_variant: PoolVariant,
+    pub token_in: Address,
+    pub token_out: Address,
+    pub amount0_sent: I256,
+    pub amount1_sent: I256,
+    pub token0_is_weth: bool,
+    pub pool: Address,
+    pub price: U256,
+    pub tokens: TokenPair,
+    pub arb_pools: Vec<Address>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenPair {
+    pub weth: Address,
+    pub token: Address,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredArbsRanges {
+    pub earliest_timestamp: u64,
+    pub latest_timestamp: u64,
+    pub earliest_block: u64,
+    pub latest_block: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy)]
@@ -57,30 +76,22 @@ impl PoolVariant {
     }
 }
 
-/// Information derived from user's trade tx.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct UserTradeParams {
-    #[serde(rename = "poolVariant")]
-    pub pool_variant: PoolVariant,
-    #[serde(rename = "tokenIn")]
-    pub token_in: Address,
-    #[serde(rename = "tokenOut")]
-    pub token_out: Address,
-    #[serde(rename = "amount0Sent")]
-    pub amount0_sent: I256,
-    #[serde(rename = "amount1Sent")]
-    pub amount1_sent: I256,
-    #[serde(rename = "token0IsWeth")]
-    pub token0_is_weth: bool,
-    pub pool: Address,
-    pub price: U256,
-    pub tokens: TokenPair,
-    #[serde(rename = "arbPools")]
-    pub arb_pools: Vec<Address>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TokenPair {
-    pub weth: Address,
-    pub token: Address,
+impl SimArbResultBatch {
+    pub fn test_example() -> Self {
+        Self {
+            event: EventHistory {
+                block: 9001,
+                timestamp: 9001,
+                hint: Hint {
+                    txs: vec![],
+                    hash: H256::zero(),
+                    logs: vec![],
+                    gas_used: None,
+                    mev_gas_price: None,
+                },
+            },
+            results: vec![],
+            max_profit: 0x1337.into(),
+        }
+    }
 }

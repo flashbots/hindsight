@@ -52,6 +52,7 @@ pub async fn simulate_backrun_arbs(
         }
     }
     Ok(SimArbResultBatch {
+        event: event.to_owned(),
         max_profit,
         results: res,
     })
