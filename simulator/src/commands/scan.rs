@@ -17,14 +17,21 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
     let hindsight = Hindsight::new().init(config).await?;
+    let db = ArbDb::new(None).await?;
+
     let mut done = false;
     let mut event_params: EventHistoryParams = params.clone().into();
-
     let batch_size = params.batch_size.unwrap_or(5);
     event_params.limit = Some(batch_size as u64);
     event_params.offset = Some(0);
 
-    let db = ArbDb::new(None).await?;
+    // refine params based on ranges present in DB
+    let db_ranges = db.get_previously_saved_ranges().await?;
+    // TODO: ask user if they want to do this.
+    // Overwriting old results may be desired, but not the default.
+    event_params.block_start = Some(params.block_start.unwrap_or(0).max(db_ranges.latest_block));
+    // TODO: add timestamp ranges?
+
     info!("batch size: {}", batch_size);
     while !done {
         // fetch events

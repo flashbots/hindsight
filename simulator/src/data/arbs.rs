@@ -4,7 +4,7 @@ use crate::{
     Result,
 };
 use futures::stream::TryStreamExt;
-use mongodb::{bson::doc, options::FindOptions, Collection};
+use mongodb::Collection;
 
 const ARB_COLLECTION: &'static str = "arbs";
 
