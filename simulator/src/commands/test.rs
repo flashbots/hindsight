@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::data::Db;
+use crate::data::arbs::ArbDb;
 use crate::hindsight::Hindsight;
 use crate::sim::processor::H256Map;
 use crate::util::get_ws_client;
@@ -61,7 +61,7 @@ pub async fn run(batch_size: Option<usize>, config: Config, save_to_db: bool) ->
             vec![juicy_tx].as_ref(),
             batch_size.unwrap_or(1),
             if save_to_db {
-                Some(Box::new(Db::new(None).init().await?))
+                Some(Box::new(ArbDb::new(None).await?))
             } else {
                 None
             },

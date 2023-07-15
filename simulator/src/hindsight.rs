@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    data::Db,
+    data::arbs::ArbDb,
     info,
     sim::processor::{simulate_backrun_arbs, H256Map},
     util::{get_ws_client, WsClient},
@@ -80,7 +80,7 @@ impl Hindsight {
         self,
         txs: &Vec<Transaction>,
         batch_size: usize,
-        db: Option<Box<Db>>,
+        connect: Option<Box<ArbDb>>,
         event_map: H256Map<EventHistory>,
     ) -> Result<()> {
         info!("loaded {} transactions total...", txs.len());
@@ -111,7 +111,7 @@ impl Hindsight {
                 .map(|res| res.unwrap())
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
-            if let Some(db) = db.to_owned() {
+            if let Some(db) = connect.to_owned() {
                 // can't do && with a `let` in the conditional
                 if !results.is_empty() {
                     db.to_owned().write_arbs(results).await?;

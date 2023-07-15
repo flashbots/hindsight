@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::data::Db;
+use crate::data::arbs::ArbDb;
 use crate::hindsight::{Hindsight, ScanOptions};
 use crate::info;
 
@@ -24,7 +24,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     event_params.limit = Some(batch_size as u64);
     event_params.offset = Some(0);
 
-    let db = Db::new(None).init().await?;
+    let db = ArbDb::new(None).await?;
     info!("batch size: {}", batch_size);
     while !done {
         // fetch events
