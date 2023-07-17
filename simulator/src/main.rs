@@ -45,11 +45,6 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::default();
     let cli = Cli::parse();
 
-    println!(
-        "oohh geeez\nauth signer\t{:?}\nrpc url\t\t{:?}",
-        config.auth_signer_key, config.rpc_url_ws
-    );
-
     match cli.debug {
         0 => {
             println!("no debug");

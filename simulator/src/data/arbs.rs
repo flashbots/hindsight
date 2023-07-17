@@ -54,22 +54,6 @@ impl ArbDb {
     }
 
     pub async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
-        // insert some test data first
-        let arbs = vec![
-            {
-                let mut ex1 = SimArbResultBatch::test_example();
-                ex1.event.block = 1;
-                ex1.event.timestamp = 1;
-                ex1
-            },
-            {
-                let mut ex2 = SimArbResultBatch::test_example();
-                ex2.event.block = 100000000000;
-                ex2.event.timestamp = 184467440737095516;
-                ex2
-            },
-        ];
-        self.write_arbs(arbs).await?;
         let mut all_arbs = self.read_arbs().await?;
         // sort arbs by event block number
         all_arbs.sort_by(|a, b| a.event.block.cmp(&b.event.block));
@@ -114,6 +98,22 @@ mod test {
     #[tokio::test]
     async fn it_finds_block_ranges_from_db() -> Result<()> {
         let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
+        // insert some test data first
+        let arbs = vec![
+            {
+                let mut ex1 = SimArbResultBatch::test_example();
+                ex1.event.block = 1;
+                ex1.event.timestamp = 1;
+                ex1
+            },
+            {
+                let mut ex2 = SimArbResultBatch::test_example();
+                ex2.event.block = 100000000000;
+                ex2.event.timestamp = 184467440737095516;
+                ex2
+            },
+        ];
+        connect.write_arbs(arbs).await?;
         let ranges = connect.get_previously_saved_ranges().await?;
         println!("ranges: {:?}", ranges);
         Ok(())

@@ -45,7 +45,6 @@ pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<
             }
         }));
     }
-
     let results = future::join_all(handles)
         .await
         .into_iter()
@@ -54,8 +53,6 @@ pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<
         .filter(|r| r.is_some())
         .map(|r| r.unwrap())
         .collect::<Vec<_>>();
-    println!("results: {:#?}", results);
-
     Ok(results)
 }
 
@@ -177,7 +174,6 @@ pub async fn fetch_price_v3(client: &WsClient, pool: Address) -> Result<U256> {
             function liquidity() external view returns (uint128)
         ]"#
     );
-    println!("fetching price for V3 pool: {:?}", pool);
     let contract = IUniswapV3Pool::new(pool, client.clone());
     let slot0 = contract.slot_0().call().await?;
     let liquidity = contract.liquidity().call().await?;
@@ -222,4 +218,28 @@ pub async fn get_balance_call(
     );
     let contract = IERC20::new(token, client.clone());
     Ok(contract.balance_of(account).tx)
+}
+
+pub fn filter_events_by_topic(
+    events: &Vec<EventHistory>,
+    filter_topics: &Vec<H256>,
+) -> Vec<EventHistory> {
+    events
+        .into_iter()
+        .filter(|event| {
+            event
+                .hint
+                .logs
+                .iter()
+                .map(|log| log.topics.to_owned())
+                .any(|topics| {
+                    topics
+                        .iter()
+                        .map(|topic| filter_topics.contains(topic))
+                        .reduce(|a, b| a || b)
+                        .unwrap_or(false)
+                })
+        })
+        .map(|e| e.to_owned())
+        .collect::<Vec<_>>()
 }
