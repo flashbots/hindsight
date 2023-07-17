@@ -76,6 +76,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         let events = mevshare
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
+        // update params & exit condition
+        event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
         done = events.len() < event_params.limit.unwrap_or(500) as usize;
         info!(
             "fetched {} events. first event timestamp={}",
@@ -96,8 +98,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
             .process_orderflow(&txs, batch_size, Some(Box::new(db.to_owned())), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
-        event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
-        // info!("offset: {}", event_params.offset.unwrap());
+
+        info!("offset: {:?}", event_params.offset);
         // info!("limit: {}", event_params.limit.unwrap());
         // info!("#events: {}", events.len());
     }
