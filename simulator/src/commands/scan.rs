@@ -45,26 +45,28 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         TODO: ask user if they want to do this.
         Overwriting old results may be desired, but not the default.
         Replace the provided timestamp/block params with the latest respective
-        value in the DB if it's higher than the param.
+        value + 1 in the DB if it's higher than the param.
+        We add 1 to prevent duplicates. If an arb is saved in the DB,
+        then we know we've scanned & simulated up to that point.
         Timestamp arg takes precedent over block if both are provided.
     */
     let db_ranges = db.get_previously_saved_ranges().await?;
+    info!("previously saved event ranges: {:?}", db_ranges);
     if params.timestamp_start.is_some() {
         event_params.timestamp_start = Some(
             params
                 .timestamp_start
                 .unwrap()
-                .max(db_ranges.latest_timestamp),
+                .max(db_ranges.latest_timestamp + 1),
         );
     } else if params.block_start.is_some() {
         event_params.block_start =
-            Some(params.block_start.unwrap_or(0).max(db_ranges.latest_block));
+            Some(params.block_start.unwrap().max(db_ranges.latest_block + 1));
     }
 
     info!(
-        "starting at block={}, timestamp={}",
-        event_params.block_start.unwrap(),
-        event_params.timestamp_start.unwrap()
+        "starting at block={:?}, timestamp={:?}",
+        event_params.block_start, event_params.timestamp_start
     );
 
     info!("batch size: {}", batch_size);
@@ -75,6 +77,11 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
         done = events.len() < event_params.limit.unwrap_or(500) as usize;
+        info!(
+            "fetched {} events. first event timestamp={}",
+            events.len(),
+            events[0].timestamp
+        );
         // filter out irrelevant events
         let events = filter_events_by_topic(&events, &filter_topics);
         // get txs for relevant events
