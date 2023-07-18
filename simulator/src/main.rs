@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use simulator::{commands, config::Config, debug, hindsight::ScanOptions};
+use hindsight::{commands, config::Config, debug};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -23,17 +23,21 @@ enum Commands {
         #[arg(short, long)]
         save_to_db: bool,
     },
+    /// Scan previous MEV-Share events for arbitrage opportunities.
     Scan {
-        /// Scan events from MEV-Share event stream.
+        /// Scan from this block.
         #[arg(short, long)]
         block_start: Option<u64>,
+        /// Scan from this block.
         #[arg(short, long)]
         timestamp_start: Option<u64>,
+        /// Scan until this block.
         #[arg(long)]
         block_end: Option<u64>,
+        /// Scan until this timestamp.
         #[arg(long)]
         timestamp_end: Option<u64>,
-        /// Number of transactions to simulate concurrently.
+        /// Number of transactions to simulate concurrently. Defaults to number of cores on host.
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
     },
@@ -75,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
             batch_size,
         }) => {
             debug!("scan command");
-            let scan_options = ScanOptions {
+            let scan_options = commands::scan::ScanOptions {
                 block_start,
                 block_end,
                 timestamp_start,

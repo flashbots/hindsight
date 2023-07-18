@@ -1831,6 +1831,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
+name = "hindsight"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-recursion",
+ "clap",
+ "colored 2.0.4",
+ "dotenvy",
+ "ethers",
+ "futures",
+ "mev-share-sse",
+ "mongodb",
+ "revm",
+ "rusty-sando",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uniswap_v3_math",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3847,29 +3870,6 @@ checksum = "5e1788eed21689f9cf370582dfc467ef36ed9c707f073528ddafa8d83e3b8500"
 dependencies = [
  "digest 0.10.7",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "simulator"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-recursion",
- "clap",
- "colored 2.0.4",
- "dotenvy",
- "ethers",
- "futures",
- "mev-share-sse",
- "mongodb",
- "revm",
- "rusty-sando",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uniswap_v3_math",
 ]
 
 [[package]]
