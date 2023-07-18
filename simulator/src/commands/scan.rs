@@ -97,11 +97,13 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
 
     info!("batch size: {}", batch_size);
     let filter_topics = uniswap_topics();
+    /* ========================== event processing ====================================== */
     while !done {
-        // fetch events
+        // fetch events (500)
         let events = mevshare
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
+
         // update params & exit condition
         event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
         done = events.len() < event_params.limit.unwrap_or(500) as usize;
@@ -112,13 +114,38 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         );
         // filter out irrelevant events
         let events = filter_events_by_topic(&events, &filter_topics);
-        // get txs for relevant events
-        let txs = fetch_txs(&ws_client, &events).await?;
-        // process arbs
+        info!(
+            "filtered for uniswap events. {} events ready to process.",
+            events.len()
+        );
+        // map events by hash for fast lookups
         let event_map = events
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
+
+        let mut events_offset = 0;
+        let mut txs = vec![];
+        // Concurrently fetch all landed txs for each event.
+        // Only request `batch_size` at a time to avoid overloading the RPC endpoint.
+        while events_offset < events.len() {
+            let this_batch = events
+                .iter()
+                .skip(events_offset)
+                .take(batch_size)
+                .map(|event| event.to_owned())
+                .collect::<Vec<EventHistory>>();
+            events_offset += this_batch.len();
+            // get txs for relevant events
+            txs.append(&mut fetch_txs(&ws_client, &this_batch).await?);
+        }
+
+        /* ========================== batch-sized arb processing ========================
+           Here, *at least* `batch_size` txs should be passed to `process_orderflow`.
+           In `process_orderflow`, *at most* `batch_size` txs are simulated at a time.
+           The last iteration will process only (remaining_txs % batch_size) txs, so it's
+           most efficient when (txs.len() % batch_size == 0) and/or (txs.len() much greater than batch_size).
+        */
         hindsight
             .to_owned()
             .process_orderflow(&txs, batch_size, Some(Box::new(db.to_owned())), event_map)
