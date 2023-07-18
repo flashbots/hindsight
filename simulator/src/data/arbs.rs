@@ -1,10 +1,13 @@
 use crate::{
     data::DbConnect,
+    info,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
 use futures::stream::TryStreamExt;
 use mongodb::Collection;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 const ARB_COLLECTION: &'static str = "arbs";
 
@@ -24,23 +27,12 @@ impl ArbDb {
         })
     }
 
-    pub async fn write_arbs(&self, arbs: Vec<SimArbResultBatch>) -> Result<()> {
+    pub async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
         self.arb_collection.insert_many(arbs, None).await?;
         Ok(())
     }
 
-    pub async fn read_arbs(
-        &self,
-        // limit: Option<i64>,
-        // filter: Option<SimArbResultBatch>,
-    ) -> Result<Vec<SimArbResultBatch>> {
-        // TODO: maybe this later
-        // let limit = limit.unwrap_or(100);
-        // let mut options;
-        // if let Some(filter) = filter {
-        //     options = FindOptions::builder().filter(filter).build();
-        // }
-        // options = options.build();
+    pub async fn read_arbs(&self) -> Result<Vec<SimArbResultBatch>> {
         let collection = self
             .connect
             .db
@@ -51,6 +43,18 @@ impl ArbDb {
             results.push(res);
         }
         Ok(results)
+    }
+
+    /// Saves arbs to given filename.
+    pub async fn export_arbs(&self, filename: Option<&str>) -> Result<()> {
+        let arbs = self.read_arbs().await?;
+        let filename = filename.unwrap_or("arbs.json");
+        info!("exporting {} arbs to file {}...", arbs.len(), filename);
+        let file = File::create(filename)?;
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &arbs)?;
+        writer.flush()?;
+        Ok(())
     }
 
     pub async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
@@ -74,22 +78,40 @@ impl ArbDb {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
     use crate::{interfaces::SimArbResultBatch, Result};
 
     const TEST_DB: &'static str = "test_hindsight";
 
+    async fn inject_test_arbs(connect: &ArbDb, quantity: u64) -> Result<Vec<SimArbResultBatch>> {
+        let mut arbs = vec![];
+        (0..quantity).for_each(|i| {
+            let mut arb = SimArbResultBatch::test_example();
+            arb.event.block = 1 + i;
+            arb.event.timestamp = 0x77777777 + i;
+            arbs.push(arb);
+        });
+        connect.write_arbs(&arbs).await?;
+        Ok(arbs)
+    }
+
+    async fn connect() -> Result<ArbDb> {
+        let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
+        Ok(connect)
+    }
+
     #[tokio::test]
     async fn it_writes_to_db() -> Result<()> {
-        let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
+        let connect = connect().await?;
         let arbs = vec![SimArbResultBatch::test_example()];
-        connect.write_arbs(arbs).await?;
+        connect.write_arbs(&arbs).await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn it_reads_from_db() -> Result<()> {
-        let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
+        let connect = connect().await?;
         let arbs = connect.read_arbs().await?;
         println!("arbs: {:?}", arbs);
         Ok(())
@@ -97,25 +119,20 @@ mod test {
 
     #[tokio::test]
     async fn it_finds_block_ranges_from_db() -> Result<()> {
-        let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
+        let connect = connect().await?;
         // insert some test data first
-        let arbs = vec![
-            {
-                let mut ex1 = SimArbResultBatch::test_example();
-                ex1.event.block = 1;
-                ex1.event.timestamp = 1;
-                ex1
-            },
-            {
-                let mut ex2 = SimArbResultBatch::test_example();
-                ex2.event.block = 100000000000;
-                ex2.event.timestamp = 184467440737095516;
-                ex2
-            },
-        ];
-        connect.write_arbs(arbs).await?;
+        inject_test_arbs(&connect, 2).await?;
         let ranges = connect.get_previously_saved_ranges().await?;
         println!("ranges: {:?}", ranges);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn it_exports_arbs() -> Result<()> {
+        // inject some test data first
+        let connect = connect().await?;
+        inject_test_arbs(&connect, 13).await?;
+        connect.export_arbs(Some("test_arbs.json")).await?;
         Ok(())
     }
 }

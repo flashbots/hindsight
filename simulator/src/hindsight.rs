@@ -62,7 +62,7 @@ impl Hindsight {
             if let Some(db) = connect.to_owned() {
                 // can't do && with a `let` in the conditional
                 if !results.is_empty() {
-                    db.to_owned().write_arbs(results).await?;
+                    db.to_owned().write_arbs(&results).await?;
                 }
             }
         }
