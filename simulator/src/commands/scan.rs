@@ -1,16 +1,15 @@
-use std::str::FromStr;
-
 use crate::config::Config;
 use crate::data::arbs::ArbDb;
 use crate::hindsight::{Hindsight, ScanOptions};
 use crate::info;
-
 use crate::scanner::event_history_url;
 use crate::sim::processor::H256Map;
 use crate::util::{fetch_txs, filter_events_by_topic, get_ws_client};
 use crate::Result;
 use ethers::types::H256;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
+use std::str::FromStr;
+use std::thread::available_parallelism;
 
 fn uniswap_topics() -> Vec<H256> {
     vec![
@@ -37,9 +36,11 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
 
     let mut done = false;
     let mut event_params: EventHistoryParams = params.clone().into();
-    let batch_size = params.batch_size.unwrap_or(5);
-    event_params.limit = Some(batch_size as u64);
-    event_params.offset = Some(0);
+    let batch_size = params.batch_size.unwrap_or(
+        // use number of cores as default batch size, if available
+        // if num cpus cannot be detected, use 4
+        available_parallelism().map(|n| usize::from(n)).unwrap_or(4),
+    );
 
     /* Refine params based on ranges present in DB.
         TODO: ask user if they want to do this.

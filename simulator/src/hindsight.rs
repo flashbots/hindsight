@@ -40,8 +40,8 @@ impl Into<EventHistoryParams> for ScanOptions {
             block_end: self.block_end,
             timestamp_start: self.timestamp_start,
             timestamp_end: self.timestamp_end,
-            limit: None,
-            offset: None,
+            limit: Some(500),
+            offset: Some(0),
         }
     }
 }
