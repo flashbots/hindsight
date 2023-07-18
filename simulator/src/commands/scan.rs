@@ -67,7 +67,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         // reason to use half: each event may spawn multiple threads, likely to exceed cpu count.
         available_parallelism()
             .map(|n| usize::from(n) / 2)
-            .unwrap_or(4),
+            .unwrap_or(4)
+            .max(1),
     );
 
     /* Refine params based on ranges present in DB.
