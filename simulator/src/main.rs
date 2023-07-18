@@ -1,5 +1,12 @@
 use clap::{Parser, Subcommand};
-use hindsight::{commands, config::Config, debug};
+use ethers::types::U256;
+use hindsight::{
+    commands::{self},
+    config::Config,
+    data::arbs::ArbFilterParams,
+    debug,
+};
+use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -23,7 +30,7 @@ enum Commands {
         #[arg(short, long)]
         save_to_db: bool,
     },
-    /// Scan previous MEV-Share events for arbitrage opportunities.
+    /// Scan previous MEV-Share events for arbitrage opportunities. Automatically saves results to DB.
     Scan {
         /// Scan from this block.
         #[arg(short, long)]
@@ -40,6 +47,27 @@ enum Commands {
         /// Number of transactions to simulate concurrently. Defaults to number of cores on host.
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
+    },
+    /// Export arbs from DB to a JSON file.
+    Export {
+        /// File to save arbs to. (Default="arbs.json")
+        #[arg(short, long)]
+        filename: Option<String>,
+        /// Export arbs starting from this timestamp.
+        #[arg(short, long)]
+        timestamp_start: Option<u64>,
+        /// Stop exporting arbs at this timestamp.
+        #[arg(long)]
+        timestamp_end: Option<u64>,
+        /// Export arbs starting from this block.
+        #[arg(short, long)]
+        block_start: Option<u64>,
+        /// Stop exporting arbs at this block.
+        #[arg(long)]
+        block_end: Option<u64>,
+        /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e17 wei)
+        #[arg(short = 'p', long)]
+        min_profit: Option<f64>,
     },
 }
 
@@ -89,6 +117,34 @@ async fn main() -> anyhow::Result<()> {
                 batch_size,
             };
             commands::scan::run(scan_options, config).await?;
+        }
+        Some(Commands::Export {
+            filename,
+            block_end,
+            block_start,
+            timestamp_end,
+            timestamp_start,
+            min_profit,
+        }) => {
+            let min_profit = if let Some(min_profit) = min_profit {
+                min_profit
+            } else {
+                0f64
+            };
+
+            let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
+            println!("umin_profit: {}", umin_profit);
+            commands::export::run(
+                filename,
+                ArbFilterParams {
+                    block_end,
+                    block_start,
+                    timestamp_end,
+                    timestamp_start,
+                    min_profit: Some(umin_profit),
+                },
+            )
+            .await?;
         }
         None => {
             let program = std::env::args().next().unwrap_or("hindsight".to_owned());
