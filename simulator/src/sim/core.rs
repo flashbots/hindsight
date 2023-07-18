@@ -21,7 +21,6 @@ use rusty_sando::types::BlockInfo;
 use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use uniswap_v3_math::utils::RUINT_MAX_U256;
 
 const MAX_DEPTH: usize = 4;
 const STEP_INTERVALS: usize = 15;
@@ -45,7 +44,6 @@ pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<F
     let mut evm = EVM::new();
     evm.database(fork_factory.new_sandbox_fork());
     setup_block_state(&mut evm, block_info);
-
     Ok(evm)
 }
 
@@ -319,8 +317,8 @@ async fn step_arb(
                 } else {
                     best_amount_in_out.0 - band_width
                 },
-                if RUINT_MAX_U256 - r_amount < band_width.into() {
-                    RUINT_MAX_U256.into()
+                if U256::MAX - r_amount < band_width.into() {
+                    U256::MAX.into()
                 } else {
                     best_amount_in_out.0 + band_width
                 },
