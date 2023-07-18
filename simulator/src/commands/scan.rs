@@ -62,9 +62,12 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let mut done = false;
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(
-        // use number of cores as default batch size, if available
-        // if num cpus cannot be detected, use 4
-        available_parallelism().map(|n| usize::from(n)).unwrap_or(4),
+        // use half the number of cores as default batch size, if available
+        // if num cpus cannot be detected, use 4.
+        // reason to use half: each event may spawn multiple threads, likely to exceed cpu count.
+        available_parallelism()
+            .map(|n| usize::from(n) / 2)
+            .unwrap_or(4),
     );
 
     /* Refine params based on ranges present in DB.

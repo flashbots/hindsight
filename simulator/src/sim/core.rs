@@ -242,7 +242,7 @@ async fn step_arb(
 
     if let Some(depth) = depth {
         // stop case: we have recursed once and the range minimum is still 0
-        if range[0] == 0.into() && depth >= 1 {
+        if range[0] == 0.into() && depth > 1 {
             // Return (0, 0) to indicate that there was no arbitrage opportunity,
             // but the arb params (tokens, pools, etc) were still valid.
             // This ensures that the attempt is logged in the DB.
@@ -284,7 +284,6 @@ async fn step_arb(
 
             for result in revenues {
                 if let Ok(result) = result {
-                    // info!("*** revenue result {:?}", result);
                     if let Ok(result) = result {
                         let (amount_in, balance_out) = result;
                         if balance_out > best_amount_in_out.1 {
