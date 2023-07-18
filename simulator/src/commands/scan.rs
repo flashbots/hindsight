@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::data::arbs::ArbDb;
-use crate::hindsight::{Hindsight, ScanOptions};
+use crate::hindsight::Hindsight;
 use crate::info;
 use crate::scanner::event_history_url;
 use crate::sim::processor::H256Map;
@@ -10,6 +10,31 @@ use ethers::types::H256;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 use std::str::FromStr;
 use std::thread::available_parallelism;
+
+#[derive(Clone, Debug)]
+pub struct ScanOptions {
+    pub block_start: Option<u64>,
+    pub block_end: Option<u64>,
+    pub timestamp_start: Option<u64>,
+    pub timestamp_end: Option<u64>,
+    /// for saving
+    pub filename_txs: Option<String>,
+    pub filename_events: Option<String>,
+    pub batch_size: Option<usize>,
+}
+
+impl Into<EventHistoryParams> for ScanOptions {
+    fn into(self) -> EventHistoryParams {
+        EventHistoryParams {
+            block_start: self.block_start,
+            block_end: self.block_end,
+            timestamp_start: self.timestamp_start,
+            timestamp_end: self.timestamp_end,
+            limit: Some(500),
+            offset: Some(0),
+        }
+    }
+}
 
 fn uniswap_topics() -> Vec<H256> {
     vec![

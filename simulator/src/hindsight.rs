@@ -1,4 +1,5 @@
 use crate::{
+    commands::scan::ScanOptions,
     config::Config,
     data::arbs::ArbDb,
     info,
@@ -8,7 +9,7 @@ use crate::{
 };
 use ethers::types::Transaction;
 use futures::future;
-use mev_share_sse::{EventHistory, EventHistoryParams};
+use mev_share_sse::EventHistory;
 
 mod factory {
     #[derive(Debug)]
@@ -19,31 +20,6 @@ use factory::HindsightFactory;
 #[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
-}
-
-#[derive(Clone, Debug)]
-pub struct ScanOptions {
-    pub block_start: Option<u64>,
-    pub block_end: Option<u64>,
-    pub timestamp_start: Option<u64>,
-    pub timestamp_end: Option<u64>,
-    /// for saving
-    pub filename_txs: Option<String>,
-    pub filename_events: Option<String>,
-    pub batch_size: Option<usize>,
-}
-
-impl Into<EventHistoryParams> for ScanOptions {
-    fn into(self) -> EventHistoryParams {
-        EventHistoryParams {
-            block_start: self.block_start,
-            block_end: self.block_end,
-            timestamp_start: self.timestamp_start,
-            timestamp_end: self.timestamp_end,
-            limit: Some(500),
-            offset: Some(0),
-        }
-    }
 }
 
 #[derive(Debug)]
