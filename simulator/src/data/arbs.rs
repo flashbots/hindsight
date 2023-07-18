@@ -11,6 +11,7 @@ use std::io::{BufWriter, Write};
 
 const ARB_COLLECTION: &'static str = "arbs";
 
+/// Arbitrage DB. Used for saving/loading results of simulations for long-term data analysis.
 #[derive(Clone, Debug)]
 pub struct ArbDb {
     connect: DbConnect,
@@ -18,6 +19,7 @@ pub struct ArbDb {
 }
 
 impl ArbDb {
+    /// Creates a new ArbDb instance, which connects to the arb collection.
     pub async fn new(name: Option<String>) -> Result<Self> {
         let connect = DbConnect::new(name).init().await?;
         let arb_collection = connect.db.collection::<SimArbResultBatch>(ARB_COLLECTION);
@@ -27,11 +29,13 @@ impl ArbDb {
         })
     }
 
+    /// Write given arbs to the DB.
     pub async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
         self.arb_collection.insert_many(arbs, None).await?;
         Ok(())
     }
 
+    /// Load all arbs from the DB.
     pub async fn read_arbs(&self) -> Result<Vec<SimArbResultBatch>> {
         let collection = self
             .connect
@@ -45,10 +49,16 @@ impl ArbDb {
         Ok(results)
     }
 
-    /// Saves arbs to given filename.
+    /// Saves arbs in JSON format to given filename. `.json` is appended to the filename if the filename doesn't have it already.
     pub async fn export_arbs(&self, filename: Option<&str>) -> Result<()> {
         let arbs = self.read_arbs().await?;
         let filename = filename.unwrap_or("arbs.json");
+        let filename = if filename.ends_with(".json") {
+            filename.to_owned()
+        } else {
+            format!("{}.json", filename)
+        };
+
         info!("exporting {} arbs to file {}...", arbs.len(), filename);
         let file = File::create(filename)?;
         let mut writer = BufWriter::new(file);
@@ -57,6 +67,7 @@ impl ArbDb {
         Ok(())
     }
 
+    /// Gets the extrema of the blocks and timestamps of the arbs in the DB.
     pub async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
         let mut all_arbs = self.read_arbs().await?;
         // sort arbs by event block number
