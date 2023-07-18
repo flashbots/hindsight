@@ -1,5 +1,4 @@
 use crate::{
-    commands::scan::ScanOptions,
     config::Config,
     data::arbs::ArbDb,
     info,
@@ -20,18 +19,6 @@ use factory::HindsightFactory;
 #[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
-}
-
-#[derive(Debug)]
-pub struct LoadOptions {
-    /// for loading
-    pub filename: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum HindsightOptions {
-    Scan(ScanOptions),
-    Load(LoadOptions),
 }
 
 impl HindsightFactory {
