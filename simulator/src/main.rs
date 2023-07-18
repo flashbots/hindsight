@@ -91,7 +91,8 @@ async fn main() -> anyhow::Result<()> {
             commands::scan::run(scan_options, config).await?;
         }
         None => {
-            println!("for usage, run: cargo run -- --help");
+            let program = std::env::args().next().unwrap_or("hindsight".to_owned());
+            println!("for usage, run: {} --help", program);
         }
     }
 
