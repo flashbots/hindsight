@@ -10,7 +10,7 @@ use mev_share_sse::EventHistory;
 use serde_json::json;
 
 pub async fn run(batch_size: Option<usize>, config: Config, save_to_db: bool) -> Result<()> {
-    let hindsight = Hindsight::new().init(config.to_owned()).await?;
+    let hindsight = Hindsight::new(config.to_owned()).await?;
     let juicy_event: EventHistory = serde_json::from_value(json!({
       "block": 17637019,
       "timestamp": 1688673408,

@@ -10,30 +10,15 @@ use ethers::types::Transaction;
 use futures::future;
 use mev_share_sse::EventHistory;
 
-mod factory {
-    #[derive(Debug)]
-    pub struct HindsightFactory {}
-}
-use factory::HindsightFactory;
-
 #[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
 }
 
-impl HindsightFactory {
-    pub fn new() -> Self {
-        Self {}
-    }
-    pub async fn init(self, config: Config) -> Result<Hindsight> {
-        let client = get_ws_client(Some(config.rpc_url_ws.to_owned())).await?;
-        Ok(Hindsight { client })
-    }
-}
-
 impl Hindsight {
-    pub fn new() -> HindsightFactory {
-        HindsightFactory::new()
+    pub async fn new(config: Config) -> Result<Self> {
+        let client = get_ws_client(Some(config.rpc_url_ws.to_owned())).await?;
+        Ok(Self { client })
     }
     /// Process all transactions in `txs` taking `batch_size` at a time to run
     /// in parallel.

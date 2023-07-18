@@ -56,7 +56,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     );
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
-    let hindsight = Hindsight::new().init(config).await?;
+    let hindsight = Hindsight::new(config).await?;
     let db = ArbDb::new(None).await?;
 
     let mut done = false;
