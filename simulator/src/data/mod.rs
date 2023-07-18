@@ -1,6 +1,4 @@
 pub mod arbs;
-pub mod events;
-mod io;
-pub mod txs;
+mod db;
 
-pub use io::db::DbConnect;
+pub use db::DbConnect;
