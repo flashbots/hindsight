@@ -2364,19 +2364,24 @@ dependencies = [
 [[package]]
 name = "mev-share-sse"
 version = "0.1.0"
-source = "git+https://github.com/zeroXbrock/mev-share-rs.git?branch=optional-log-tx-fields#30964370fbe16165277db27fad6851ed66c7d8af"
+source = "git+https://github.com/paradigmxyz/mev-share-rs.git#c0278b16c26558c16a92ba62f6599e86326f8ff8"
 dependencies = [
  "async-sse",
  "bytes",
  "ethers-core",
  "futures-util",
+ "http",
  "http-types",
+ "hyper",
  "pin-project-lite",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
  "tracing",
 ]
 
@@ -4253,6 +4258,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-stream"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "397c988d37662c7dda6d2208364a706264bf3d6138b11d436cbac0ad38832842"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "tokio-tungstenite"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4319,6 +4336,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
+dependencies = [
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-layer"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c20c8dbed6283a09604c3e69b4b7eeb54e298b8a600d4d5ecb5ad39de609f1d0"
+
+[[package]]
 name = "tower-service"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4331,6 +4365,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
  "cfg-if",
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -4530,7 +4565,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "uniswap_v3_math"
 version = "0.4.0"
-source = "git+https://github.com/0xKitsune/uniswap_v3_math#509ae1ea9762d6b49a1bb6dcce1a3ed59b581b3f"
+source = "git+https://github.com/0xKitsune/uniswap_v3_math.git#509ae1ea9762d6b49a1bb6dcce1a3ed59b581b3f"
 dependencies = [
  "ethers",
  "ruint",
