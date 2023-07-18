@@ -223,7 +223,6 @@ async fn step_arb(
     if params.arb_pools.len() == 0 {
         return Err(HindsightError::PoolNotFound(params.pool).into());
     }
-
     if (range[1] - range[0]) < U256::from(500_000) * 1_000_000_000 {
         debug!("range tight enough, finishing early");
         return best_amount_in_out.ok_or_else(|| {
@@ -238,9 +237,17 @@ async fn step_arb(
         (eth_into_arb,
         eth_balance_after_arb)
     */
-    let mut best_amount_in_out = best_amount_in_out.unwrap_or((0.into(), 0.into())); // (0, 0) is default assignment on initial call
+    let mut best_amount_in_out =
+        best_amount_in_out.unwrap_or((0.into(), braindance_starting_balance())); // (0, 0) is default assignment on initial call
 
     if let Some(depth) = depth {
+        // stop case: we have recursed once and the range minimum is still 0
+        if range[0] == 0.into() && depth >= 1 {
+            // Return (0, 0) to indicate that there was no arbitrage opportunity,
+            // but the arb params (tokens, pools, etc) were still valid.
+            // This ensures that the attempt is logged in the DB.
+            return Ok((0.into(), braindance_starting_balance()));
+        }
         // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
         if depth > MAX_DEPTH
             || (best_amount_in_out.0 > U256::from(0)
