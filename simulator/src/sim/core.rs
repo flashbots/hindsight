@@ -512,9 +512,9 @@ pub async fn find_optimal_backrun_amount_in_out(
 
 /// Simulate a two-step arbitrage on a forked EVM with fixed trade amount & path.
 ///
-/// 1. Buy `amount_in` WETH worth of token on `start_pair_variant.0`
+/// 1. Buy `amount_in` WETH worth of token on start_pair
 ///
-/// 2. Sell balance of token on `end_pair_variant.0` for WETH, completing the arb.
+/// 2. Sell balance of token on end_pair for WETH, completing the arb.
 async fn sim_arb_single(
     mut evm: EVM<ForkDB>,
     user_tx: Transaction,
