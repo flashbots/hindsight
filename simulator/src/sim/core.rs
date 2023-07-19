@@ -241,7 +241,7 @@ async fn step_arb(
     if let Some(depth) = depth {
         // stop case: we have recursed once and the range minimum is still 0, and no profit
         if range[0] == 0.into()
-            && depth >= 1
+            && depth > 1
             && best_amount_in_out.1 <= braindance_starting_balance()
         {
             // Return (0, 0) to indicate that there was no arbitrage opportunity,
