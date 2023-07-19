@@ -4,7 +4,7 @@ use crate::{
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
-use ethers::types::U256;
+use ethers::{types::U256, utils::format_ether};
 use futures::stream::TryStreamExt;
 use mongodb::Collection;
 use std::fs::File;
@@ -80,7 +80,7 @@ impl ArbDb {
         let results = results
             .into_iter()
             .filter(|arb| {
-                arb.max_profit > min_profit
+                arb.max_profit >= min_profit
                     && arb.event.block >= min_block
                     && arb.event.block <= max_block
                     && arb.event.timestamp >= min_timestamp
@@ -97,6 +97,27 @@ impl ArbDb {
         filter_params: ArbFilterParams,
     ) -> Result<()> {
         let arbs = self.read_arbs(filter_params).await?;
+        let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+        let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
+        let start_timestamp = arbs
+            .iter()
+            .map(|arb| arb.event.timestamp)
+            .min()
+            .unwrap_or(0);
+        let end_timestamp = arbs
+            .iter()
+            .map(|arb| arb.event.timestamp)
+            .max()
+            .unwrap_or(0);
+        let sum_profit = arbs
+            .iter()
+            .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
+        info!("SUM PROFIT: {}", format_ether(sum_profit));
+        info!("(start,end) block: ({}, {})", start_block, end_block);
+        info!(
+            "time range: {} days",
+            (end_timestamp - start_timestamp) as f64 / 86400_f64
+        );
         let filename = filename.unwrap_or("arbs.json".to_owned());
         let filename = if filename.ends_with(".json") {
             filename.to_owned()

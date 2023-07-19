@@ -133,7 +133,6 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
-            println!("umin_profit: {}", umin_profit);
             commands::export::run(
                 filename,
                 ArbFilterParams {
