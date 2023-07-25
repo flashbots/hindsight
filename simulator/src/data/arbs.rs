@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 
 const ARB_COLLECTION: &'static str = "arbs";
+const EXPORT_DIR: &'static str = "./arbData";
 
 /// Arbitrage DB. Used for saving/loading results of simulations for long-term data analysis.
 #[derive(Clone, Debug)]
@@ -91,6 +92,8 @@ impl ArbDb {
     }
 
     /// Saves arbs in JSON format to given filename. `.json` is appended to the filename if the filename doesn't have it already.
+    ///
+    /// Save all files in `./arbData/`
     pub async fn export_arbs(
         &self,
         filename: Option<String>,
@@ -129,6 +132,9 @@ impl ArbDb {
         } else {
             format!("{}.json", filename)
         };
+        // create ./arbData/ if it doesn't exist
+        std::fs::create_dir_all(EXPORT_DIR)?;
+        let filename = format!("{}/{}", EXPORT_DIR, filename);
         if arbs.len() > 0 {
             info!("exporting {} arbs to file {}...", arbs.len(), filename);
             let file = File::create(filename)?;

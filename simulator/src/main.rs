@@ -50,7 +50,9 @@ enum Commands {
     },
     /// Export arbs from DB to a JSON file.
     Export {
-        /// File to save arbs to. (Default="arbs_{unix-timestamp}.json")
+        /// File to save arbs to.
+        ///
+        /// All files are saved in `./arbData/`. (Default="arbs_{unix-timestamp}.json")
         #[arg(short, long)]
         filename: Option<String>,
         /// Export arbs starting from this timestamp.
@@ -65,7 +67,7 @@ enum Commands {
         /// Stop exporting arbs at this block.
         #[arg(long)]
         block_end: Option<u64>,
-        /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e17 wei)
+        /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e16 wei)
         #[arg(short = 'p', long)]
         min_profit: Option<f64>,
     },
