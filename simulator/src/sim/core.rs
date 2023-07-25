@@ -230,12 +230,13 @@ async fn step_arb(
     ======================== STOP CASES ============================
     ============================================================  */
     if params.arb_pools.len() == 0 {
+        // returning an error here will halt the whole sim branch
         return Err(HindsightError::PoolNotFound(params.pool).into());
     }
     // if the ranges get tight enough together, we can quit early
     // we'll call a 1% difference "tight enough"
     if (range[1] - range[0]) <= (range[0] / 100) {
-        debug!("range tight enough, finishing early");
+        info!("range tight enough, finishing early");
         return done_profitable();
     }
     /*  INIT CASE:
@@ -264,12 +265,12 @@ async fn step_arb(
         // Return (0, start_balance) to indicate that there was no arbitrage opportunity,
         // but the arb params (tokens, pools, etc) were still valid.
         // This ensures that the attempt is logged in the DB.
-        debug!("amount_in trending towards zero, quitting sim.");
+        info!("amount_in trending towards zero, quitting sim.");
         return done_unprofitable();
     }
     // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
     if depth > MAX_DEPTH {
-        debug!("depth limit reached, quitting sim.");
+        info!("depth limit reached, quitting sim.");
         return done_profitable();
     }
 
@@ -301,6 +302,7 @@ async fn step_arb(
             .await
         }));
     }
+
     /*  ============================================================
     ===================== RESULT FILTERING =========================
     ============================================================  */
@@ -413,10 +415,9 @@ pub async fn find_optimal_backrun_amount_in_out(
     */
     for params in params {
         if params.arb_pools.len() == 0 {
+            debug!("skipping this set of params, no arb pools found.");
             continue;
         }
-
-        // let mut init_handles = vec![];
         for other_pool in params.arb_pools.to_owned() {
             let client = client.clone();
             let user_tx = user_tx.clone();
@@ -510,8 +511,7 @@ pub async fn find_optimal_backrun_amount_in_out(
         .map(|res| res.unwrap())
         .filter(|res| res.is_some())
         .map(|res| res.to_owned().unwrap())
-        .collect::<Vec<_>>()
-        .to_vec())
+        .collect::<Vec<_>>())
 }
 
 /// Simulate a two-step arbitrage on a forked EVM with fixed trade amount & path.
