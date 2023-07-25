@@ -235,9 +235,9 @@ async fn step_arb(
         return Err(HindsightError::PoolNotFound(params.pool).into());
     }
     // if the ranges get tight enough together, we can quit early
-    // we'll call a 1% difference "tight enough"
-    if (range[1] - range[0]) <= (range[0] / 100) {
-        info!("range tight enough, finishing early");
+    // we'll call a 0.1% difference "tight enough"
+    if (range[1] - range[0]) <= (range[0] / 1000) {
+        info!("range tight enough, finishing early {:?}", range);
         return done_profitable();
     }
     /*  INIT CASE:
