@@ -1,9 +1,9 @@
 use crate::error::HindsightError;
-use crate::interfaces::{BackrunResult, PoolVariant, SimArbResult, TokenPair, UserTradeParams};
-use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
-use crate::util::{
-    get_other_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
+use crate::interfaces::{
+    BackrunResult, PairPool, PoolVariant, SimArbResult, TokenPair, UserTradeParams,
 };
+use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
+use crate::util::{get_all_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient};
 use crate::{debug, info};
 use crate::{Error, Result};
 use async_recursion::async_recursion;
@@ -168,12 +168,13 @@ async fn derive_trade_params(
         );
         let token_in = if swap_0_for_1 { token0 } else { token1 };
         let token_out = if swap_0_for_1 { token1 } else { token0 };
-        let arb_pools: Vec<Address> =
-            get_other_pair_addresses(client, (token_in, token_out), pool_variant)
-                .await?
-                .into_iter()
-                .filter(|pool| !pool.is_zero())
-                .collect();
+        // find all pairs that aren't the one that the user swapped on
+        let arb_pools: Vec<PairPool> = get_all_pair_addresses(client, (token_in, token_out))
+            .await?
+            .into_iter()
+            .filter(|pool| !pool.address.is_zero())
+            .filter(|pool| pool.address != pool_address)
+            .collect();
         trade_params.push(UserTradeParams {
             pool_variant,
             token_in,
@@ -402,6 +403,11 @@ pub async fn find_optimal_backrun_amount_in_out(
                                           /   \     /   \ \
                                          /     \   /     \ ...
     [pool_handles] <--bg thread <-- ... pool,pool,pool,pool
+                                          |
+                                        step_arb
+                                         / \
+                                        /   ...
+                                    sim_arb_single
 
     Simulate an arb for every pool and throw out the ones that
     don't turn a profit.
@@ -429,36 +435,69 @@ pub async fn find_optimal_backrun_amount_in_out(
                     .await
                     .expect("failed to fork evm");
 
-                let alt_price = match params.pool_variant {
-                    PoolVariant::UniswapV2 => {
-                        sim_price_v3(other_pool, params.token_in, params.token_out, &mut evm)
-                            .await
-                            .expect("sim_price_v3 panicked")
-                    }
-                    PoolVariant::UniswapV3 => {
-                        sim_price_v2(other_pool, params.token_in, params.token_out, &mut evm)
-                            .await
-                            .expect("sim_price_v2 panicked")
-                    }
+                // find price on other exchange
+                let alt_price = match other_pool.variant {
+                    PoolVariant::UniswapV2 => sim_price_v2(
+                        other_pool.address,
+                        params.token_in,
+                        params.token_out,
+                        &mut evm,
+                    )
+                    .await
+                    .expect(&format!(
+                        "sim_price_v2 panicked. address={} token_in={} token_out={}",
+                        other_pool.address, params.token_in, params.token_out
+                    )),
+                    PoolVariant::UniswapV3 => sim_price_v3(
+                        other_pool.address,
+                        params.token_in,
+                        params.token_out,
+                        &mut evm,
+                    )
+                    .await
+                    .expect(&format!(
+                        "sim_price_v3 panicked. address={} token_in={} token_out={}",
+                        other_pool.address, params.token_in, params.token_out
+                    )),
                 };
                 debug!("alt price {:?}", alt_price);
 
-                let (start_pool, start_pool_variant, end_pool) = if params.token0_is_weth {
-                    // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
-                    /* NOTE: ASSUME THAT WE'RE ALWAYS SWAPPING __BETWEEN__ VARIANTS. */
-                    if params.price.gt(&alt_price) {
-                        (params.pool, params.pool_variant, other_pool)
+                let (start_pool, start_pool_variant, end_pool, end_pool_variant) =
+                    if params.token0_is_weth {
+                        // if tkn0 is weth, then price is denoted in tkn1/eth, so look for highest price
+                        if params.price.gt(&alt_price) {
+                            (
+                                params.pool,
+                                params.pool_variant,
+                                other_pool.address,
+                                other_pool.variant,
+                            )
+                        } else {
+                            (
+                                other_pool.address,
+                                other_pool.variant,
+                                params.pool,
+                                params.pool_variant,
+                            )
+                        }
                     } else {
-                        (other_pool, params.pool_variant.other(), params.pool)
-                    }
-                } else {
-                    // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
-                    if params.price.gt(&alt_price) {
-                        (other_pool, params.pool_variant.other(), params.pool)
-                    } else {
-                        (params.pool, params.pool_variant, other_pool)
-                    }
-                };
+                        // else if tkn1 is weth, then price is denoted in eth/tkn0, so look for lowest price
+                        if params.price.gt(&alt_price) {
+                            (
+                                other_pool.address,
+                                other_pool.variant,
+                                params.pool,
+                                params.pool_variant,
+                            )
+                        } else {
+                            (
+                                params.pool,
+                                params.pool_variant,
+                                other_pool.address,
+                                other_pool.variant,
+                            )
+                        }
+                    };
 
                 // set amount_in_start to the arb contract balance; ours has 420 WETH
                 let initial_range = [0.into(), braindance_starting_balance()];
@@ -474,7 +513,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                     STEP_INTERVALS,
                     None,
                     (start_pool, start_pool_variant),
-                    (end_pool, start_pool_variant.other()),
+                    (end_pool, end_pool_variant),
                 )
                 .await;
                 debug!("*** step_arb complete: {:?}", res);
@@ -492,7 +531,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                             start_pool: start_pool,
                             end_pool: end_pool,
                             start_variant: start_pool_variant,
-                            end_variant: start_pool_variant.other(),
+                            end_variant: end_pool_variant,
                         },
                     })
                 } else {
@@ -603,14 +642,14 @@ mod test {
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB
-        let pool = get_other_pair_addresses(&client, (weth, tkn), PoolVariant::UniswapV3).await?[0];
+        let pool = get_all_pair_addresses(&client, (weth, tkn)).await?[0];
         debug!("starting balance: {:?}", braindance_starting_balance());
         // buy 10 ETH worth of SHIB
         let res = commit_braindance_swap(
             &mut evm,
             PoolVariant::UniswapV2,
             ETH * 10,
-            pool,
+            pool.address,
             weth,
             tkn,
             U256::from(1000000000) * 420,
@@ -621,7 +660,7 @@ mod test {
             &mut evm,
             PoolVariant::UniswapV2,
             res,
-            pool,
+            pool.address,
             tkn,
             weth,
             U256::from(1000000000) * 420,

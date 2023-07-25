@@ -42,7 +42,7 @@ pub struct UserTradeParams {
     pub pool: Address,
     pub price: U256,
     pub tokens: TokenPair,
-    pub arb_pools: Vec<Address>,
+    pub arb_pools: Vec<PairPool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -50,6 +50,12 @@ pub struct UserTradeParams {
 pub struct TokenPair {
     pub weth: Address,
     pub token: Address,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct PairPool {
+    pub variant: PoolVariant,
+    pub address: Address,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -65,15 +71,6 @@ pub struct StoredArbsRanges {
 pub enum PoolVariant {
     UniswapV2,
     UniswapV3,
-}
-
-impl PoolVariant {
-    pub fn other(&self) -> Self {
-        match self {
-            PoolVariant::UniswapV2 => PoolVariant::UniswapV3,
-            PoolVariant::UniswapV3 => PoolVariant::UniswapV2,
-        }
-    }
 }
 
 impl SimArbResultBatch {

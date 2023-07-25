@@ -1,4 +1,9 @@
-use crate::{config::Config, info, interfaces::PoolVariant, Result};
+use crate::{
+    config::Config,
+    info,
+    interfaces::{PairPool, PoolVariant},
+    Result,
+};
 use ethers::{
     prelude::{abigen, H160},
     providers::{Middleware, Provider, Ws},
@@ -134,22 +139,30 @@ async fn get_v3_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Resu
         .await?)
 }
 
-/// Get pair address from all other supported factories.
-pub async fn get_other_pair_addresses(
+/// Get pair address from all supported factories, including the given pair.
+/// Filter what I return if you need to.
+pub async fn get_all_pair_addresses(
     client: &WsClient,
     pair_tokens: (Address, Address),
-    pool_variant: PoolVariant,
-) -> Result<Vec<Address>> {
-    let mut other_pairs = vec![];
-    match pool_variant {
-        PoolVariant::UniswapV2 => {
-            other_pairs.push(get_v3_pair(client, pair_tokens).await?);
-        }
-        PoolVariant::UniswapV3 => {
-            other_pairs.append(&mut get_v2_pairs(client, pair_tokens).await?);
-        }
-    };
-    Ok(other_pairs)
+) -> Result<Vec<PairPool>> {
+    let mut all_pairs = vec![];
+    // push v3 pair (there should only be one for a given fee, which we hard-code to 3000 in get_v3_pair)
+    all_pairs.push(PairPool {
+        address: get_v3_pair(client, pair_tokens).await?,
+        variant: PoolVariant::UniswapV3,
+    });
+    // v2 pairs pull from multiple v2 clones
+    let v2_pairs = get_v2_pairs(client, pair_tokens).await?;
+    all_pairs.append(
+        &mut v2_pairs
+            .into_iter()
+            .map(|pair| PairPool {
+                address: pair,
+                variant: PoolVariant::UniswapV2,
+            })
+            .collect::<Vec<_>>(),
+    );
+    Ok(all_pairs)
 }
 
 /// Returns the price (token1 per token0).
