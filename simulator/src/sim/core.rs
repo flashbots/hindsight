@@ -22,7 +22,7 @@ use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-const MAX_DEPTH: usize = 4;
+const MAX_DEPTH: usize = 7;
 const STEP_INTERVALS: usize = 15;
 
 /// Return an evm instance forked from the provided block info and client state
@@ -217,136 +217,36 @@ async fn step_arb(
     ",
         best_amount_in_out, depth, range, user_tx.hash, start_pair_variant, end_pair_variant
     );
+    // unwrap current best result or assign defaults for init case
+    let (mut best_amount_in, mut best_amount_out) =
+        best_amount_in_out.unwrap_or((0.into(), braindance_starting_balance()));
 
+    // convenience closures for stop cases
+    let done_unprofitable = || return Ok((0.into(), braindance_starting_balance()));
+    let done_profitable = || return Ok((best_amount_in, best_amount_out));
+
+    /*  ============================================================
+    ======================== STOP CASES ============================
+    ============================================================  */
     if params.arb_pools.len() == 0 {
         return Err(HindsightError::PoolNotFound(params.pool).into());
     }
-    if (range[1] - range[0]) < U256::from(500_000) * 1_000_000_000 {
+    // if the ranges get tight enough together, we can quit early
+    // we'll call a 1% difference "tight enough"
+    if (range[1] - range[0]) <= (range[0] / 100) {
         debug!("range tight enough, finishing early");
-        return best_amount_in_out.ok_or_else(|| {
-            anyhow::anyhow!(
-                "No arbitrage opportunity found for trade {:?} at depth {:?}",
-                params,
-                depth
-            )
-        });
+        return done_profitable();
     }
-    /*
-        (eth_into_arb,
-        eth_balance_after_arb)
+    /*  INIT CASE:
+       User possibly passed None for best_amount_in_out, so we use our catch-all values defined above and recurse.
     */
-    let mut best_amount_in_out =
-        best_amount_in_out.unwrap_or((0.into(), braindance_starting_balance())); // (0, 0) is default assignment on initial call
-
-    if let Some(depth) = depth {
-        // stop case: we have recursed once and the range minimum is still 0, and no profit
-        if range[0] == 0.into()
-            && depth > 1
-            && best_amount_in_out.1 <= braindance_starting_balance()
-        {
-            // Return (0, 0) to indicate that there was no arbitrage opportunity,
-            // but the arb params (tokens, pools, etc) were still valid.
-            // This ensures that the attempt is logged in the DB.
-            return Ok((0.into(), braindance_starting_balance()));
-        }
-        // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
-        if depth > MAX_DEPTH
-            || (best_amount_in_out.0 > U256::from(0)
-                && best_amount_in_out.0 < (U256::from(180_000) * block_info.base_fee))
-        {
-            debug!("depth limit reached or profit too low, finishing early");
-            return Ok(best_amount_in_out);
-        } else {
-            // run sims with current params
-            let mut handles = vec![];
-            let band_width = (range[1] - range[0]) / U256::from(intervals);
-            for i in 0..intervals {
-                let evm = fork_evm(&client, &block_info).await?;
-                let amount_in = range[0] + band_width * U256::from(i);
-                let user_tx = user_tx.clone();
-                let block_info = block_info.clone();
-                let params = params.clone();
-                handles.push(tokio::task::spawn(async move {
-                    sim_arb_single(
-                        evm,
-                        user_tx,
-                        &block_info,
-                        &params,
-                        amount_in,
-                        start_pair_variant,
-                        end_pair_variant,
-                    )
-                    .await
-                }));
-            }
-            let revenues = future::join_all(handles).await;
-            let revenue_len = revenues.len();
-            let mut num_reverts = 0;
-
-            for result in revenues {
-                if let Ok(result) = result {
-                    if let Ok(result) = result {
-                        let (amount_in, balance_out) = result;
-                        if balance_out > best_amount_in_out.1 {
-                            best_amount_in_out = (amount_in, balance_out);
-                            debug!(
-                                "new best (amount_in, balance_out): {:?}",
-                                best_amount_in_out
-                            );
-                        }
-                    } else {
-                        let err = result.as_ref().unwrap_err().to_string();
-                        debug!("{}", err);
-                        if err.contains("no other pool found") {
-                            return result;
-                        } else if err.contains("swap reverted") {
-                            num_reverts += 1;
-                        }
-                        // TODO: use real error types, not this garbage
-                    }
-                } else {
-                    return Err(anyhow::anyhow!("system error in step_arb"));
-                }
-                if num_reverts == revenue_len {
-                    return Err(anyhow::anyhow!("all swaps reverted"));
-                }
-            }
-
-            // refine params and recurse
-            let r_amount: rU256 = best_amount_in_out.0.into();
-            let range = [
-                if best_amount_in_out.0 < band_width {
-                    0.into()
-                } else {
-                    best_amount_in_out.0 - band_width
-                },
-                if U256::MAX - r_amount < band_width.into() {
-                    U256::MAX.into()
-                } else {
-                    best_amount_in_out.0 + band_width
-                },
-            ];
-            return step_arb(
-                client,
-                user_tx,
-                block_info,
-                params,
-                Some(best_amount_in_out),
-                range,
-                intervals,
-                Some(depth + 1),
-                start_pair_variant,
-                end_pair_variant,
-            )
-            .await;
-        }
-    } else {
+    if depth.is_none() {
         return step_arb(
             client,
             user_tx,
             block_info,
             params,
-            Some(best_amount_in_out),
+            Some((best_amount_in, best_amount_out)),
             range,
             intervals,
             Some(0),
@@ -355,6 +255,113 @@ async fn step_arb(
         )
         .await;
     }
+    // this could just be unwrapped, but paranoia is good when it's just in your code.
+    let depth = depth.expect("depth should have been defined (recursively) by this point.");
+
+    // stop case: we have recursed three times and the range minimum is STILL 0, AND no profit
+    if range[0] == 0.into() && depth >= 3 && best_amount_out <= braindance_starting_balance() {
+        // Return (0, start_balance) to indicate that there was no arbitrage opportunity,
+        // but the arb params (tokens, pools, etc) were still valid.
+        // This ensures that the attempt is logged in the DB.
+        debug!("amount_in trending towards zero, quitting sim.");
+        return done_unprofitable();
+    }
+    // stop case: we hit the max depth, or the best amount of WETH in is lower than the gas cost of the backrun tx
+    if depth > MAX_DEPTH {
+        debug!("depth limit reached, quitting sim.");
+        return done_profitable();
+    }
+
+    // run sims with current params
+    let mut handles = vec![];
+    let band_width = (range[1] - range[0]) / U256::from(intervals);
+    for i in 0..intervals {
+        // prep data for consumption by async task
+        let amount_in = range[0] + band_width * U256::from(i);
+        let user_tx = user_tx.clone();
+        let block_info = block_info.clone();
+        let params = params.clone();
+        let client = client.clone();
+        // spawn the task, hold on to its handle
+        handles.push(tokio::task::spawn(async move {
+            let evm = fork_evm(&client, &block_info).await?;
+            sim_arb_single(
+                evm,
+                user_tx,
+                &block_info,
+                &params,
+                amount_in,
+                start_pair_variant,
+                end_pair_variant,
+            )
+            .await
+        }));
+    }
+    let revenues = future::join_all(handles).await;
+    let revenue_len = revenues.len();
+    let mut num_reverts = 0;
+    // pick best result and update best_amount_in & best_amount_out
+    for result in revenues {
+        if let Ok(result) = result {
+            if let Ok(result) = result {
+                let (amount_in, balance_out) = result;
+                if balance_out > best_amount_out {
+                    best_amount_in = amount_in;
+                    best_amount_out = balance_out;
+                    debug!(
+                        "new best (amount_in, balance_out): {:?}",
+                        best_amount_in_out
+                    );
+                }
+            } else {
+                // TODO: use real error types, not this garbage
+                let err = result.as_ref().unwrap_err().to_string();
+                debug!("{}", err);
+                if err.contains("no other pool found") {
+                    // fail the whole batch by returning this error immediately
+                    return result;
+                } else if err.contains("swap reverted") {
+                    num_reverts += 1;
+                }
+            }
+        } else {
+            return Err(anyhow::anyhow!(
+                "system error in step_arb. error in a sim_arb_single result: {}",
+                result.as_ref().unwrap_err().to_string() // TODO: use a more idiomatic approach to returning the error w/ custom tagging data
+            ));
+        }
+        if num_reverts == revenue_len {
+            return Err(anyhow::anyhow!("all swaps reverted"));
+        }
+    }
+
+    // refine range and recurse w/ +1 depth & updated best_amounts
+    let r_amount: rU256 = best_amount_in.into();
+    let range = [
+        if best_amount_in < band_width {
+            0.into()
+        } else {
+            best_amount_in - band_width
+        },
+        if U256::MAX - r_amount < band_width.into() {
+            U256::MAX.into()
+        } else {
+            best_amount_in + band_width
+        },
+    ];
+    return step_arb(
+        client,
+        user_tx,
+        block_info,
+        params,
+        Some((best_amount_in, best_amount_out)),
+        range,
+        intervals,
+        Some(depth + 1),
+        start_pair_variant,
+        end_pair_variant,
+    )
+    .await;
 }
 
 /// Find the optimal backrun for a given tx.
