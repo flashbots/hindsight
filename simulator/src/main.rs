@@ -50,7 +50,7 @@ enum Commands {
     },
     /// Export arbs from DB to a JSON file.
     Export {
-        /// File to save arbs to. (Default="arbs.json")
+        /// File to save arbs to. (Default="arbs_{unix-timestamp}.json")
         #[arg(short, long)]
         filename: Option<String>,
         /// Export arbs starting from this timestamp.

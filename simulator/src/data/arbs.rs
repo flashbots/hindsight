@@ -118,7 +118,12 @@ impl ArbDb {
             "time range: {} days",
             (end_timestamp - start_timestamp) as f64 / 86400_f64
         );
-        let filename = filename.unwrap_or("arbs.json".to_owned());
+        let filename = filename.unwrap_or(format!(
+            "arbs_{}.json",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs()
+        ));
         let filename = if filename.ends_with(".json") {
             filename.to_owned()
         } else {
