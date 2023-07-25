@@ -272,6 +272,9 @@ async fn step_arb(
         return done_profitable();
     }
 
+    /*  ============================================================
+    ============== PARALLEL SIMULATION PROCESSING ==================
+    ============================================================  */
     // run sims with current params
     let mut handles = vec![];
     let band_width = (range[1] - range[0]) / U256::from(intervals);
@@ -297,6 +300,9 @@ async fn step_arb(
             .await
         }));
     }
+    /*  ============================================================
+    ===================== RESULT FILTERING =========================
+    ============================================================  */
     let revenues = future::join_all(handles).await;
     let revenue_len = revenues.len();
     let mut num_reverts = 0;
@@ -335,7 +341,9 @@ async fn step_arb(
         }
     }
 
-    // refine range and recurse w/ +1 depth & updated best_amounts
+    /*  ============================================================
+    ===================== IM RECURSIIIIING =========================
+    ============================================================  */
     let r_amount: rU256 = best_amount_in.into();
     let range = [
         if best_amount_in < band_width {
@@ -413,7 +421,7 @@ pub async fn find_optimal_backrun_amount_in_out(
             let user_tx = user_tx.clone();
             let block_info = block_info.clone();
             let params = params.clone();
-            let handle = tokio::spawn(async move {
+            let handle = tokio::task::spawn(async move {
                 let mut evm = fork_evm(&client, &block_info)
                     .await
                     .expect("failed to fork evm");
