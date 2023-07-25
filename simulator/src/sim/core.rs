@@ -27,6 +27,7 @@ const STEP_INTERVALS: usize = 15;
 
 /// Return an evm instance forked from the provided block info and client state
 /// with braindance module initialized.
+/// Braindance contracts starts w/ braindance_starting_balance, which is 420 WETH.
 pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<ForkDB>> {
     let fork_block_num = BlockNumber::Number(block_info.number);
     let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
@@ -421,6 +422,7 @@ pub async fn find_optimal_backrun_amount_in_out(
             let user_tx = user_tx.clone();
             let block_info = block_info.clone();
             let params = params.clone();
+            /* SPAWN A NEW (GREEN) THREAD */
             let handle = tokio::task::spawn(async move {
                 let mut evm = fork_evm(&client, &block_info)
                     .await
@@ -457,21 +459,8 @@ pub async fn find_optimal_backrun_amount_in_out(
                     }
                 };
 
-                // set amount_in_start to however much eth the user sent. If the user sent a token, convert it to eth.
-                let amount_in_start = if params.token_in == params.tokens.weth {
-                    if params.token0_is_weth {
-                        params.amount0_sent.into_raw()
-                    } else {
-                        params.amount1_sent.into_raw()
-                    }
-                } else {
-                    if params.token0_is_weth {
-                        params.amount1_sent.into_raw() * params.price
-                    } else {
-                        params.amount0_sent.into_raw() * params.price
-                    }
-                };
-                let initial_range = [0.into(), amount_in_start];
+                // set amount_in_start to the arb contract balance; ours has 420 WETH
+                let initial_range = [0.into(), braindance_starting_balance()];
 
                 // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
                 let res = step_arb(
@@ -513,7 +502,7 @@ pub async fn find_optimal_backrun_amount_in_out(
         }
     }
 
-    // Ok(pool_handles)
+    // Collect all the results for this batch, filter out any errors or empty results before returning.
     let results: Vec<_> = future::join_all(pool_handles).await;
     Ok(results
         .into_iter()
