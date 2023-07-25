@@ -44,7 +44,7 @@ enum Commands {
         /// Scan until this timestamp.
         #[arg(long)]
         timestamp_end: Option<u64>,
-        /// Number of transactions to simulate concurrently. Defaults to number of cores on host.
+        /// Number of transactions to simulate concurrently. Defaults to 1/2 the CPU cores on host.
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
     },
