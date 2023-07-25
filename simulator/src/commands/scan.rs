@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::data::arbs::ArbDb;
+use crate::event_history::event_history_url;
 use crate::hindsight::Hindsight;
 use crate::info;
-use crate::scanner::event_history_url;
 use crate::sim::processor::H256Map;
 use crate::util::{fetch_txs, filter_events_by_topic, get_ws_client};
 use crate::Result;
@@ -51,8 +51,8 @@ fn uniswap_topics() -> Vec<H256> {
 
 pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     info!(
-        "scanning events starting at block={}",
-        params.block_start.unwrap_or(0)
+        "scanning events starting at block={:?} timestamp={:?}",
+        params.block_start, params.timestamp_start
     );
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
