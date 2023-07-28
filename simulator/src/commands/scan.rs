@@ -59,7 +59,6 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let hindsight = Hindsight::new(config).await?;
     let db = ArbDb::new(None).await?;
 
-    let mut done = false;
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(
         // use half the number of cores as default batch size, if available
@@ -102,15 +101,19 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     info!("batch size: {}", batch_size);
     let filter_topics = uniswap_topics();
     /* ========================== event processing ====================================== */
-    while !done {
+    loop {
         // fetch events (500)
         let events = mevshare
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
 
-        // update params & exit condition
+        // update params for next batch of events
         event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
-        done = events.len() < event_params.limit.unwrap_or(500) as usize;
+        // if the api returns < limit, we've run out of events to process
+        // (reached present moment) so we exit
+        if events.len() < event_params.limit.unwrap_or(500) as usize {
+            break;
+        }
         info!(
             "fetched {} events. first event timestamp={}",
             events.len(),

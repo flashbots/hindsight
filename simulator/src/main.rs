@@ -4,7 +4,7 @@ use hindsight::{
     commands::{self},
     config::Config,
     data::arbs::ArbFilterParams,
-    debug,
+    debug, info,
 };
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 
@@ -118,7 +118,12 @@ async fn main() -> anyhow::Result<()> {
                 filename_txs: None,
                 batch_size,
             };
-            commands::scan::run(scan_options, config).await?;
+            loop {
+                let res = commands::scan::run(scan_options.to_owned(), config.to_owned()).await;
+                if res.is_err() {
+                    info!("program crashed with error {:?}, restarting...", res);
+                }
+            }
         }
         Some(Commands::Export {
             filename,
