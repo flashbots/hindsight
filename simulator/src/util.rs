@@ -166,57 +166,72 @@ pub async fn get_all_pair_addresses(
 }
 
 /// Returns the price (token1 per token0).
-pub fn get_price_v2(reserves0: U256, reserves1: U256, decimals: U256) -> Result<U256> {
-    Ok((reserves1 * U256::from(10).pow(decimals)) / reserves0)
+pub fn get_price_v2(reserves0: U256, reserves1: U256, token0_decimals: U256) -> Result<U256> {
+    Ok((reserves1 * U256::from(10).pow(token0_decimals)) / reserves0)
 }
 
 /// Returns the price (token1 per token0).
 pub fn get_price_v3(liquidity: U256, sqrt_price_x96: U256, token0_decimals: U256) -> Result<U256> {
-    // let q96 = U256::from(0x1000000000000000000000000u128);
     let reserves0 = mul_div(liquidity, Q96, sqrt_price_x96)?;
     let reserves1 = mul_div(liquidity, sqrt_price_x96, Q96)?;
 
     Ok((reserves1 * U256::from(10).pow(token0_decimals)) / reserves0)
 }
 
-pub async fn fetch_price_v3(client: &WsClient, pool: Address) -> Result<U256> {
+pub async fn get_decimals(client: &WsClient, token: Address) -> Result<U256> {
     abigen!(
-        IUniswapV3Pool,
+        IERC20,
         r#"[
-            function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)
-            function liquidity() external view returns (uint128)
+            function decimals() external view returns (uint256)
         ]"#
     );
-    let contract = IUniswapV3Pool::new(pool, client.clone());
-    let slot0 = contract.slot_0().call().await?;
-    let liquidity = contract.liquidity().call().await?;
-    let sqrt_price_x96 = slot0.0;
-    let token0_decimals = U256::from(18);
-    Ok(get_price_v3(
-        liquidity.into(),
-        sqrt_price_x96,
-        token0_decimals,
-    )?)
+    let contract = IERC20::new(token, client.clone());
+    let decimals = contract.decimals().call().await?;
+    Ok(decimals)
 }
 
-pub async fn fetch_price_v2(client: &WsClient, pair: Address) -> Result<U256> {
-    abigen!(
-        IUniswapV2Pair,
-        r#"[
-            function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
-        ]"#
-    );
-    let contract = IUniswapV2Pair::new(pair, client.clone());
-    let reserves = contract.get_reserves().call().await?;
-    let reserve0 = reserves.0;
-    let reserve1 = reserves.1;
-    let token0_decimals = U256::from(18);
-    Ok(get_price_v2(
-        reserve0.into(),
-        reserve1.into(),
-        token0_decimals,
-    )?)
-}
+// pub async fn fetch_price_v3(client: &WsClient, pool: Address) -> Result<U256> {
+//     abigen!(
+//         IUniswapV3Pool,
+//         r#"[
+//             function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)
+//             function liquidity() external view returns (uint128)
+//             function token0() external view returns (address)
+//         ]"#
+//     );
+//     let contract = IUniswapV3Pool::new(pool, client.clone());
+//     let slot0 = contract.slot_0().call().await?;
+//     let liquidity = contract.liquidity().call().await?;
+//     let sqrt_price_x96 = slot0.0;
+//     let token0 = contract.token_0().call().await?;
+//     let token0_decimals = get_decimals(client, token0).await?;
+//     Ok(get_price_v3(
+//         liquidity.into(),
+//         sqrt_price_x96,
+//         token0_decimals,
+//     )?)
+// }
+
+// pub async fn fetch_price_v2(client: &WsClient, pair: Address) -> Result<U256> {
+//     abigen!(
+//         IUniswapV2Pair,
+//         r#"[
+//             function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
+//             function token0() external view returns (address)
+//         ]"#
+//     );
+//     let contract = IUniswapV2Pair::new(pair, client.clone());
+//     let reserves = contract.get_reserves().call().await?;
+//     let reserve0 = reserves.0;
+//     let reserve1 = reserves.1;
+//     let token0 = contract.token_0().call().await?;
+//     let token0_decimals = get_decimals(client, token0).await?;
+//     Ok(get_price_v2(
+//         reserve0.into(),
+//         reserve1.into(),
+//         token0_decimals,
+//     )?)
+// }
 
 pub async fn get_balance_call(
     client: &WsClient,

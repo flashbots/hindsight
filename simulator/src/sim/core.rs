@@ -3,7 +3,9 @@ use crate::interfaces::{
     BackrunResult, PairPool, PoolVariant, SimArbResult, TokenPair, UserTradeParams,
 };
 use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
-use crate::util::{get_all_pair_addresses, get_pair_tokens, get_price_v2, get_price_v3, WsClient};
+use crate::util::{
+    get_all_pair_addresses, get_decimals, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
+};
 use crate::{debug, info};
 use crate::{Error, Result};
 use async_recursion::async_recursion;
@@ -105,7 +107,7 @@ async fn derive_trade_params(
         let pool_variant = if swap_topic == univ3_topic {
             PoolVariant::UniswapV3
         } else {
-            PoolVariant::UniswapV2 // assume events are pre-screened, so all non-V3 events are V2
+            PoolVariant::UniswapV2 // (wrong but cheap) assume all non-V3 events are V2
         };
         debug!("pool variant: {:?}", pool_variant);
 
@@ -115,6 +117,7 @@ async fn derive_trade_params(
         debug!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
         let token0_is_weth =
             token0 == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse::<H160>()?;
+        let token0_decimals = get_decimals(client, token0).await?;
 
         // if a Sync event (UniV2) is detected from the tx logs, it can be used to get the new price
         let sync_log: Option<_> = tx_receipt
@@ -129,7 +132,7 @@ async fn derive_trade_params(
                 let amount1 = I256::from_raw(U256::from_big_endian(&swap_log.data[32..64]));
                 let sqrt_price = U256::from_big_endian(&swap_log.data[64..96]); // u160
                 let liquidity = U256::from_big_endian(&swap_log.data[96..128]); // u128
-                let new_price = get_price_v3(liquidity, sqrt_price, U256::from(18))?;
+                let new_price = get_price_v3(liquidity, sqrt_price, token0_decimals)?;
                 (
                     /* amount0_sent */
                     if amount0.le(&0.into()) {
@@ -154,7 +157,7 @@ async fn derive_trade_params(
                 if let Some(sync_log) = sync_log {
                     let reserve0 = U256::from_big_endian(&sync_log.data[0..32]);
                     let reserve1 = U256::from_big_endian(&sync_log.data[32..64]);
-                    new_price = get_price_v2(reserve0, reserve1, U256::from(18))?;
+                    new_price = get_price_v2(reserve0, reserve1, token0_decimals)?;
                 }
                 (amount0_out, amount1_out, new_price)
             }
@@ -445,7 +448,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                     )
                     .await
                     .expect(&format!(
-                        "sim_price_v2 panicked. address={} token_in={} token_out={}",
+                        "sim_price_v2 panicked. address={:?} token_in={:?} token_out={:?}",
                         other_pool.address, params.token_in, params.token_out
                     )),
                     PoolVariant::UniswapV3 => sim_price_v3(
@@ -456,7 +459,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                     )
                     .await
                     .expect(&format!(
-                        "sim_price_v3 panicked. address={} token_in={} token_out={}",
+                        "sim_price_v3 panicked. address={:?} token_in={:?} token_out={:?}",
                         other_pool.address, params.token_in, params.token_out
                     )),
                 };
