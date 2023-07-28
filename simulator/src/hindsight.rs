@@ -46,7 +46,7 @@ impl Hindsight {
             for tx in txs_batch {
                 let event_map = event_map.clone();
                 let client = self.client.clone();
-                handlers.push(tokio::spawn(async move {
+                handlers.push(tokio::task::spawn(async move {
                     simulate_backrun_arbs(&client, tx, &event_map).await.ok()
                 }));
             }

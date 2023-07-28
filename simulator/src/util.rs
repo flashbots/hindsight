@@ -34,7 +34,7 @@ pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<
 
     for tx_hash in tx_hashes.into_iter() {
         let client = client.clone();
-        handles.push(tokio::spawn(async move {
+        handles.push(tokio::task::spawn(async move {
             let tx = &client.get_transaction(tx_hash.to_owned()).await;
             if let Ok(tx) = tx {
                 if let Some(tx) = tx {
