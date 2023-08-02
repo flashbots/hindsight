@@ -11,10 +11,6 @@ use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Turn debugging information on
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
-
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -70,21 +66,6 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let config = Config::default();
     let cli = Cli::parse();
-
-    match cli.debug {
-        0 => {
-            println!("no debug");
-        }
-        1 => {
-            println!("debug 1");
-        }
-        2 => {
-            println!("debug 2");
-        }
-        _ => {
-            println!("max debug");
-        }
-    }
 
     match cli.command {
         Some(Commands::Scan {
