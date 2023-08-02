@@ -4,7 +4,7 @@ use crate::interfaces::{
 };
 use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
 use crate::util::{
-    get_all_pair_addresses, get_decimals, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
+    get_all_trading_pools, get_decimals, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
 };
 use crate::{debug, info};
 use crate::{Error, Result};
@@ -172,7 +172,7 @@ async fn derive_trade_params(
         let token_in = if swap_0_for_1 { token0 } else { token1 };
         let token_out = if swap_0_for_1 { token1 } else { token0 };
         // find all pairs that aren't the one that the user swapped on
-        let arb_pools: Vec<PairPool> = get_all_pair_addresses(client, (token_in, token_out))
+        let arb_pools: Vec<PairPool> = get_all_trading_pools(client, (token_in, token_out))
             .await?
             .into_iter()
             .filter(|pool| !pool.address.is_zero())
@@ -613,10 +613,9 @@ async fn sim_arb_single(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{get_block_info, get_ws_client, ETH};
+    use crate::util::{get_all_trading_pools, get_block_info, test::get_test_ws_client, ETH};
     use anyhow::Result;
     use ethers::providers::Middleware;
-    use rusty_sando::simulate::braindance_starting_balance;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
         let block_info = get_block_info(&client, block_num).await?;
@@ -625,7 +624,7 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_tx() -> Result<()> {
-        let client = get_ws_client(Some("ws://localhost:8545".to_owned())).await?;
+        let client = get_test_ws_client().await?;
         let block_num = client.get_block_number().await?;
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
         let block = client.get_block(block_num).await?.unwrap();
@@ -640,33 +639,35 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_swaps() -> Result<()> {
-        let client = get_ws_client(Some("ws://localhost:8545".to_owned())).await?;
+        let client = get_test_ws_client().await?;
         let block_num = client.get_block_number().await?;
-        let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
+        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
-        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB
-        let pool = get_all_pair_addresses(&client, (weth, tkn)).await?[0];
-        debug!("starting balance: {:?}", braindance_starting_balance());
-        // buy 10 ETH worth of SHIB
+        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
+        let pools = get_all_trading_pools(&client, (weth, tkn)).await?;
+        let gas_price = U256::from(1_000_000_000) * 420; // 420 gwei
+
+        // buy 69 ETH worth of SHIB on exchange 0
         let res = commit_braindance_swap(
             &mut evm,
-            PoolVariant::UniswapV2,
-            ETH * 10,
-            pool.address,
+            pools[0].variant,
+            ETH * 69,
+            pools[0].address,
             weth,
             tkn,
-            U256::from(1000000000) * 420,
+            gas_price,
             None,
         )?;
-        // sell 10 ETH worth of SHIB
+        assert!(res > 0.into());
+        // sell all the SHIB on exchange 1
         let _ = commit_braindance_swap(
             &mut evm,
-            PoolVariant::UniswapV2,
+            pools[1].variant,
             res,
-            pool.address,
+            pools[1].address,
             tkn,
             weth,
-            U256::from(1000000000) * 420,
+            gas_price,
             None,
         )?;
         Ok(())

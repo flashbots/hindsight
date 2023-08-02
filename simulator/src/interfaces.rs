@@ -67,7 +67,7 @@ pub struct StoredArbsRanges {
     pub latest_block: u64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
 pub enum PoolVariant {
     UniswapV2,
     UniswapV3,

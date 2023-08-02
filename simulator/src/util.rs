@@ -141,7 +141,7 @@ async fn get_v3_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Resu
 
 /// Get pair address from all supported factories, including the given pair.
 /// Filter what I return if you need to.
-pub async fn get_all_pair_addresses(
+pub async fn get_all_trading_pools(
     client: &WsClient,
     pair_tokens: (Address, Address),
 ) -> Result<Vec<PairPool>> {
@@ -270,4 +270,15 @@ pub fn filter_events_by_topic(
         })
         .map(|e| e.to_owned())
         .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::util::{get_ws_client, WsClient};
+    use crate::Result;
+
+    pub async fn get_test_ws_client() -> Result<WsClient> {
+        let ws_client = get_ws_client(None).await?;
+        Ok(ws_client)
+    }
 }
