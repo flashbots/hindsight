@@ -19,7 +19,7 @@ struct Cli {
     command: Option<Commands>,
 }
 
-/// Enum to parse CLI params.
+/// Analyze events from MEV-Share to find past arbitrage opportunities.
 #[derive(Subcommand)]
 enum Commands {
     /// Scan previous MEV-Share events for arbitrage opportunities. Automatically saves results to DB.
