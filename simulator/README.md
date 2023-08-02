@@ -51,9 +51,19 @@ docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb:/
 
 > :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
 
+### (optional) test
+
+All the tests are integration tests, so you'll have to have your environment (DB & ETH provider) set up to run them successfully.
+
+```sh
+export RPC_URL_WS=ws://127.0.0.1:18545
+export DB_URL=mongodb://localhost:27017
+cargo test
+```
+
 ### populate environment variables
 
-Copy the template file `.env.example` to `.env` to specify your RPC node and DB URLs.
+If you want to set your environment variables in a file, copy the template file `.env.example` to `.env` and update as needed.
 
 ```sh
 cp .env.example .env
@@ -61,7 +71,7 @@ cp .env.example .env
 vim .env
 ```
 
-The values in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
+The values present in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
 
 With the DB and Ethereum RPC accessible on the host machine:
 
@@ -72,7 +82,7 @@ RPC_URL_WS=ws://host.docker.internal:18545
 DB_URL=mongodb://host.docker.internal:27017
 ```
 
-some linux machines don't like names, you may try this instead:
+Some linux machines don't like names; you may try this instead:
 
 ```txt
 RPC_URL_WS=ws://172.17.0.1:18545
