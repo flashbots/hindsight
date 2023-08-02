@@ -19,10 +19,10 @@ struct Cli {
     command: Option<Commands>,
 }
 
-/// Analyze events from MEV-Share to find past arbitrage opportunities.
+/// Analyze historical events from MEV-Share to simulate past arbitrage opportunities and export the simulated profits.
 #[derive(Subcommand)]
 enum Commands {
-    /// Scan previous MEV-Share events for arbitrage opportunities. Automatically saves results to DB.
+    /// Scan previous MEV-Share events and simulate arbitrage opportunities. Automatically saves results to DB.
     Scan {
         /// Scan from this block.
         #[arg(short, long)]
