@@ -11,26 +11,14 @@ use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Turn debugging information on
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
-
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
-/// Enum to parse CLI params.
+/// Analyze historical events from MEV-Share to simulate past arbitrage opportunities and export the simulated profits.
 #[derive(Subcommand)]
 enum Commands {
-    /// Run arb simulator on one example transaction.
-    Test {
-        /// Simulate more than one tx at a time.
-        #[arg(short, long)]
-        batch_size: Option<usize>,
-        #[arg(short, long)]
-        save_to_db: bool,
-    },
-    /// Scan previous MEV-Share events for arbitrage opportunities. Automatically saves results to DB.
+    /// Scan previous MEV-Share events and simulate arbitrage opportunities. Automatically saves results to DB.
     Scan {
         /// Scan from this block.
         #[arg(short, long)]
@@ -79,28 +67,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::default();
     let cli = Cli::parse();
 
-    match cli.debug {
-        0 => {
-            println!("no debug");
-        }
-        1 => {
-            println!("debug 1");
-        }
-        2 => {
-            println!("debug 2");
-        }
-        _ => {
-            println!("max debug");
-        }
-    }
-
     match cli.command {
-        Some(Commands::Test {
-            batch_size,
-            save_to_db,
-        }) => {
-            commands::test::run(batch_size, config, save_to_db).await?;
-        }
         Some(Commands::Scan {
             block_end,
             block_start,

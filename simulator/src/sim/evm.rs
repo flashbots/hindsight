@@ -335,7 +335,7 @@ mod tests {
 
     use crate::{
         sim::core::fork_evm,
-        util::{get_block_info, get_ws_client},
+        util::{get_block_info, test::get_test_ws_client},
         Result,
     };
     use ethers::{
@@ -345,7 +345,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v2() -> Result<()> {
-        let client = get_ws_client(None).await?;
+        let client = get_test_ws_client().await?;
         let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
         let mut evm = fork_evm(&client, &block_info).await?;
         let target_pool = Address::from_str("0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f")?; // UniV2 SHIB/WETH
@@ -359,7 +359,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v3() -> Result<()> {
-        let client = get_ws_client(None).await?;
+        let client = get_test_ws_client().await?;
         let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
         let mut evm = fork_evm(&client, &block_info).await?;
         let target_pool = Address::from_str("0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec")?; // UniV3 SHIB/WETH (fee=3000)
