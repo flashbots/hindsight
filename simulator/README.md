@@ -13,8 +13,11 @@ Simulated arbitrage attempts are saved in a local MongoDB database, for dead-sim
 ### requirements
 
 - [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
-- [rust](https://www.rust-lang.org/learn/get-started)
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
+
+**To build and run locally:**
+
+- [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
 
 This thing spawns lots of threads. You may need to increase the file limit for your session.
 
@@ -33,6 +36,47 @@ docker compose up -d
 ```
 
 If you like, you can browse the database in your web browser here: [http://localhost:8081/](http://localhost:8081). Note that there won't be any interesting data in it until you run the [`scan`](#scan) command.
+
+### populate .env file
+
+Copy the template file `.env.example` to `.env` to specify your RPC node and DB URLs.
+
+```sh
+cp .env.example .env
+# modify in your preferred editor
+vim .env
+```
+
+The values in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
+
+With the DB and Ethereum RPC accessible on the host machine:
+
+*Docker .env config:*
+
+```txt
+RPC_URL_WS=ws://host.docker.internal:18545
+DB_URL=mongodb://host.docker.internal:27017
+```
+
+some linux machines don't like names, you may try this instead:
+
+```txt
+RPC_URL_WS=ws://172.17.0.1:18545
+DB_URL=mongodb://172.17.0.1:27017
+```
+
+#### .env vs environment variables
+
+`.env` is optional. If you prefer, you can set environment variables directly in your shell:
+
+```sh
+export RPC_URL_WS=ws://127.0.0.1:18545
+export DB_URL=mongodb://localhost:27017
+cargo run -- scan
+
+# alternatively, to only pass the variables to hindsight
+RPC_URL_WS=ws://127.0.0.1:18545 DB_URL=mongodb://localhost:27017 cargo run -- scan
+```
 
 ### build and run
 
