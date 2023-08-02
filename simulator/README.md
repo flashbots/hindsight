@@ -37,7 +37,33 @@ docker compose up -d
 
 If you like, you can browse the database in your web browser here: [http://localhost:8081/](http://localhost:8081). Note that there won't be any interesting data in it until you run the [`scan`](#scan) command.
 
-### populate .env file
+### build and run
+
+**Locally:**
+
+```sh
+# compile it
+cargo build
+
+# run with cargo
+cargo run -- --help
+
+# or run the binary directly
+./target/debug/hindsight --help
+```
+
+**With Docker:**
+
+```sh
+docker build -t hindsight .
+docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 \
+-e DB_URL=mongodb://host.docker.internal:27017 \
+hindsight --help
+```
+
+> :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
+
+### populate environment variables
 
 Copy the template file `.env.example` to `.env` to specify your RPC node and DB URLs.
 
@@ -74,21 +100,10 @@ export RPC_URL_WS=ws://127.0.0.1:18545
 export DB_URL=mongodb://localhost:27017
 cargo run -- scan
 
-# alternatively, to only pass the variables to hindsight
-RPC_URL_WS=ws://127.0.0.1:18545 DB_URL=mongodb://localhost:27017 cargo run -- scan
-```
-
-### build and run
-
-```sh
-# compile it
-cargo build
-
-# run with cargo
-cargo run -- --help
-
-# or run the binary directly
-./target/debug/hindsight --help
+# alternatively, to pass the variables directly to hindsight rather than setting them in the shell
+RPC_URL_WS=ws://127.0.0.1:18545 \
+DB_URL=mongodb://localhost:27017 \
+cargo run -- scan
 ```
 
 ## scan
@@ -98,10 +113,10 @@ The `scan` command is the heart of Hindsight. It scans events from the MEV-Share
 To scan the last week's events for arbs:
 
 ```sh
-cargo run -- scan -t $(echo "$(date +%s) - (86400 * 7)" | bc)
+hindsight scan -t $(echo "$(date +%s) - (86400 * 7)" | bc)
 
 # or if you don't have `bc` and can accept these ugly parenthesis
-cargo run -- scan -t $(echo $(($(date +%s) - ((86400 * 7)))))
+hindsight scan -t $(echo $(($(date +%s) - ((86400 * 7)))))
 ```
 
 The timestamp arguments accept unix-style integer timestamps, represented in seconds.
@@ -113,17 +128,17 @@ The `export` command is a simple way to filter and export results from the datab
 To export arbs for events from the last week:
 
 ```sh
-cargo run -- export -t $(echo "$(date +%s) - (86400 * 7)" | bc)
+hindsight export -t $(echo "$(date +%s) - (86400 * 7)" | bc)
 
 # or if you don't have bc
-cargo run -- export -t $(echo $(($(date +%s) - ((86400 * 7)))))
+hindsight export -t $(echo $(($(date +%s) - ((86400 * 7)))))
 ```
 
 To filter out unprofitable results:
 
 ```sh
 # only export arbs that returned a profit of at least 0.0001 WETH
-cargo run -- export -p 0.0001
+hindsight export -p 0.0001
 ```
 
 ## common errors
@@ -145,3 +160,4 @@ ulimit -n 4000
 - [rusty-sando](https://github.com/mouseless-eth/rusty-sando)
 - [mev-inspect-rs](https://github.com/flashbots/mev-inspect-rs)
 - [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
+- [uniswap-v3-math](https://github.com/0xKitsune/uniswap-v3-math)

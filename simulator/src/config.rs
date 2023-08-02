@@ -1,4 +1,4 @@
-use crate::warn;
+use crate::debug;
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -12,7 +12,7 @@ impl Default for Config {
         let env_file_res = dotenvy::dotenv()
             .map_err(|err| anyhow::anyhow!("Failed to load .env file. Error: {}", err));
         if let Err(err) = env_file_res {
-            warn!("{}", err);
+            debug!("{}", err);
         }
         Config {
             db_url: env::var("DB_URL").expect("DB_URL must be set"),
