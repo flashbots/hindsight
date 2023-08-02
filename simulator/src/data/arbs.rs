@@ -30,7 +30,14 @@ pub struct ArbFilterParams {
 }
 
 impl Default for ArbFilterParams {
+    /// syntactical sugar for ArbFilterParams::none()
     fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl ArbFilterParams {
+    pub fn none() -> Self {
         Self {
             block_start: None,
             block_end: None,

@@ -74,14 +74,16 @@ mod tests {
     use ethers::{providers::Middleware, types::H256};
     use serde_json::json;
 
-    use crate::config::Config;
+    use crate::{config::Config, data::arbs::ArbFilterParams};
 
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_processes_orderflow() -> Result<()> {
         let config = Config::default();
         let hindsight = Hindsight::new(config.rpc_url_ws).await?;
+
+        // data from an actual juicy event
         let juicy_event: EventHistory = serde_json::from_value(json!({
           "block": 17637019,
           "timestamp": 1688673408,
@@ -127,14 +129,25 @@ mod tests {
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
+        let test_db = Box::new(ArbDb::new(Some("test".to_owned())).await?);
+
+        // run the sim, it will save a result to the "test" DB
         hindsight
             .process_orderflow(
                 vec![juicy_tx].as_ref(),
                 1,
-                Some(Box::new(ArbDb::new(Some("test".to_owned())).await?)),
+                Some(test_db.to_owned()),
                 event_map,
             )
             .await?;
+
+        // check DB for result
+        let arbs = test_db.read_arbs(ArbFilterParams::none()).await?;
+        assert!(arbs
+            .into_iter()
+            .map(|arb| arb.event.hint.hash)
+            .collect::<Vec<_>>()
+            .contains(&juicy_tx_hash));
         Ok(())
     }
 }
