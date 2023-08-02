@@ -22,14 +22,6 @@ struct Cli {
 /// Enum to parse CLI params.
 #[derive(Subcommand)]
 enum Commands {
-    /// Run arb simulator on one example transaction.
-    Test {
-        /// Simulate more than one tx at a time.
-        #[arg(short, long)]
-        batch_size: Option<usize>,
-        #[arg(short, long)]
-        save_to_db: bool,
-    },
     /// Scan previous MEV-Share events for arbitrage opportunities. Automatically saves results to DB.
     Scan {
         /// Scan from this block.
@@ -95,12 +87,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Some(Commands::Test {
-            batch_size,
-            save_to_db,
-        }) => {
-            commands::test::run(batch_size, config, save_to_db).await?;
-        }
         Some(Commands::Scan {
             block_end,
             block_start,

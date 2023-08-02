@@ -7,6 +7,12 @@ pub struct Config {
     pub db_url: String,
 }
 
+impl Config {
+    pub fn new(rpc_url_ws: String, db_url: String) -> Config {
+        Config { rpc_url_ws, db_url }
+    }
+}
+
 impl Default for Config {
     fn default() -> Config {
         let env_file_res = dotenvy::dotenv()
