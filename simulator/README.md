@@ -154,7 +154,7 @@ docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.int
 
 ### error: "too many open files"
 
-This thing spawns lots of threads. You may need to increase the open file limit on your system to ensure reliable operation.
+The `scan` command can spawn a lot of threads. You may need to increase the open file limit on your system to ensure reliable operation.
 
 ```sh
 # check current open file limit
@@ -162,6 +162,16 @@ ulimit -Sn
 
 # raise the limit if needed
 ulimit -n 4000
+
+# be careful, this can cause system-wide issues if you set it too high
+ulimit -n 9001
+```
+
+Alternatively, you can run the `scan` command with less parallel operations:
+
+```sh
+# only process two txs at a time
+hindsight scan -n 2
 ```
 
 ### Error: Kind: Server selection timeout: No available servers
@@ -169,6 +179,25 @@ ulimit -n 4000
 ... `Topology: { Type: Unknown, Servers: [ { Address: host.docker.internal:27017, Type: Unknown, Error: Kind: I/O error: failed to lookup address information: Name or service not known, labels: {} } ] }, labels: {}`
 
 This means that your system doesn't support the `host.docker.internal` mapping. Try replacing `host.docker.internal` with `172.17.0.1`.
+
+### Error: IO error: Connection refused (os error 111)
+
+This means that either your ETH node or your DB is not properly connected.
+
+Make sure your DB is running with `docker ps` (you should see `mongo` and `mongo-express` running). If they're not running, try this:
+
+```sh
+docker compose down
+docker compose up
+```
+
+If your DB is running, make sure your node is running and accessible from your host. A [simple JSON-RPC request with curl](https://ethereum.org/en/developers/docs/apis/json-rpc/#net_version) is the simplest way to test this.
+
+```sh
+curl -X POST --data '{"jsonrpc":"2.0","method":"net_version","params":[],"id":42}'
+```
+
+If that doesn't work, try double-checking your URLs. Refer back to the [environment instructions](#populate-environment-variables) if you're lost.
 
 ## acknowledgements
 
