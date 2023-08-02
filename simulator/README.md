@@ -1,10 +1,10 @@
 # Hindsight
 
-Hindsight is a simulation-based arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events.
+Hindsight is an arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events.
 
-revm is used to simulate arbs, with the help of an archive node that supports the `trace_callMany` API (such as [Erigon](https://github.com/ledgerwatch/erigon) or [Reth](https://github.com/paradigmxyz/reth)).
+revm is used to simulate arbs with the help of an archive node that supports the `trace_callMany` API (such as [Erigon](https://github.com/ledgerwatch/erigon) or [Reth](https://github.com/paradigmxyz/reth)).
 
-The arbitrage strategy implemented here is a relatively simple two-hop arb: we swap WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and sell them on whichever supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
+The arbitrage strategy implemented here is a relatively simple two-step arb: first, we simulate the user's trade, then swap WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and sell them on whichever supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
 
 Simulated arbitrage attempts are saved in a local MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
@@ -18,16 +18,6 @@ Simulated arbitrage attempts are saved in a local MongoDB database, for dead-sim
 **To build and run locally:**
 
 - [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
-
-This thing spawns lots of threads. You may need to increase the file limit for your session.
-
-```sh
-# check current open file limit
-ulimit -Sn
-
-# run this only if the value returned is lower than 4000
-ulimit -n 4000
-```
 
 ### spin up DB
 
@@ -56,9 +46,7 @@ cargo run -- --help
 
 ```sh
 docker build -t hindsight .
-docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 \
--e DB_URL=mongodb://host.docker.internal:27017 \
-hindsight --help
+docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight --help
 ```
 
 > :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
@@ -106,7 +94,7 @@ DB_URL=mongodb://localhost:27017 \
 cargo run -- scan
 ```
 
-## scan
+## `scan`
 
 The `scan` command is the heart of Hindsight. It scans events from the MEV-Share Event History API, then fetches the full transactions of those events from the blockchain to use in simulations. The system then forks the blockchain at the block in which each transaction landed, and runs a recursive quadratic search to find the optimal amount of WETH to execute a backrun-arbitrage. The results are then saved to the database in the `arbs` collection ("collection" is MongoDB's term for a table).
 
@@ -121,7 +109,7 @@ hindsight scan -t $(echo $(($(date +%s) - ((86400 * 7)))))
 
 The timestamp arguments accept unix-style integer timestamps, represented in seconds.
 
-## export
+## `export`
 
 The `export` command is a simple way to filter and export results from the database into a JSON file.
 
@@ -141,6 +129,17 @@ To filter out unprofitable results:
 hindsight export -p 0.0001
 ```
 
+### exporting with docker
+
+Hindsight exports all files into a directory `./arbData`, relative to wherever the program is executed. To get these files out of the docker container and on to your host machine, you'll need to map the volume to a local directory.
+
+In the directory where you want to put the files (we make an `arbData` directory but you don't have to):
+
+```sh
+mkdir -p arbData
+docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
+```
+
 ## common errors
 
 ### error: "too many open files"
@@ -155,9 +154,14 @@ ulimit -Sn
 ulimit -n 4000
 ```
 
+### Error: Kind: Server selection timeout: No available servers
+
+... `Topology: { Type: Unknown, Servers: [ { Address: host.docker.internal:27017, Type: Unknown, Error: Kind: I/O error: failed to lookup address information: Name or service not known, labels: {} } ] }, labels: {}`
+
+This means that your system doesn't support the `host.docker.internal` mapping. Try replacing `host.docker.internal` with `172.17.0.1`.
+
 ## acknowledgements
 
 - [rusty-sando](https://github.com/mouseless-eth/rusty-sando)
 - [mev-inspect-rs](https://github.com/flashbots/mev-inspect-rs)
 - [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
-- [uniswap-v3-math](https://github.com/0xKitsune/uniswap-v3-math)
