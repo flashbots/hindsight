@@ -6,7 +6,7 @@ revm is used to simulate arbs with the help of an archive node that supports the
 
 The arbitrage strategy implemented here is a relatively simple two-step arb: first, we simulate the user's trade, then swap WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and sell them on whichever supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
 
-Simulated arbitrage attempts are saved in a local MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
+Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
 ## setup
 
