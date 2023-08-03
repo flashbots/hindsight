@@ -19,6 +19,8 @@ Hindsight is still in development, and is not guaranteed to be stable. If you fi
 
 ### limitations
 
+The profits estimated by this system are by no means definitive; they represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total realized profits on MEV-Share should far exceed that which is estimated by this system.
+
 This system implements a decidedly simple strategy to estimate a baseline amount of MEV exposed by a few well-known exchanges in the context of MEV-Share. It does not account for many factors that would affect the profitability of an arb, such as gas prices or the fact that the user's trade may not be the only arb opportunity in the block. This system also ignores multiple-hop arbitrage paths, which would improve profits considerably. It also ignores Balancer and Curve trades, which are supported by MEV-Share.
 
 The system currently only supports Uniswap V2/V3 and SushiSwap. More exchanges may be added in the future, which should improve profitability.
@@ -26,8 +28,6 @@ The system currently only supports Uniswap V2/V3 and SushiSwap. More exchanges m
 The system currently only supports WETH as the input token, so that the arbitrage is always WETH -> TOKEN -> WETH.
 
 The system (the `scan` command specifically) is set up to retry indefinitely when the main loop crashes. This is because every once in a while, the system encounters a critical error related to a bad API response or a bug in the code. This is not ideal, but a retry usually fixes it. However, this means that your instance might spam your node with requests if it encounters a critical error. If you're running on a hosted node, this could be expensive. Make sure to keep an eye on it while it's running. 👁️
-
-The profits estimated by this system are not definitive; they more closely represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total realized profits on MEV-Share should far exceed that which is estimated by this system.
 
 ## setup
 
