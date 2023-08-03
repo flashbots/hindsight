@@ -1,9 +1,3 @@
-[submodule "simulator/rusty-sando"]
-	path = simulator/rusty-sando
+[submodule "rusty-sando"]
+	path = rusty-sando
 	url = https://github.com/mouseless-eth/rusty-sando.git
-[submodule "simulator/mev-share-rs"]
-	path = simulator/mev-share-rs
-	url = https://github.com/mattsse/mev-share-rs.git
-[submodule "simulator/uniswap-v3-math"]
-	path = simulator/uniswap-v3-math
-	url = https://github.com/0xKitsune/uniswap-v3-math.git
