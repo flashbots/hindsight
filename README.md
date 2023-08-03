@@ -15,6 +15,8 @@ Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple st
 - [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
 
+> The default environment (specified in [`.env.example`](.env.example)) assumes that you have an Ethereum node accessible on `ws://localhost:8545`.
+
 **To build and run locally:**
 
 - [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
