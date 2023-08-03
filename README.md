@@ -6,7 +6,7 @@ revm is used to simulate arbs with the help of an Ethereum archive node that sup
 
 > Just a warning: ⚠️ running Hindsight on a hosted node may require a high rate limit, which can be expensive.
 
-The arbitrage strategy implemented here is a relatively simple two-step arb: first, we simulate the user's trade, then swap WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and sell them on whichever supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
+The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and them simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
 
 Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
@@ -88,7 +88,7 @@ RPC_URL_WS=ws://host.docker.internal:8545
 DB_URL=mongodb://host.docker.internal:27017
 ```
 
-Some linux machines don't like names; you may try this instead:
+Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
 
 ```txt
 RPC_URL_WS=ws://172.17.0.1:8545
