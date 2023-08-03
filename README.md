@@ -13,11 +13,9 @@ The arbitrage strategy implemented here is a relatively simple two-step arb: aft
 
 Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
-## ⚠️ active development ⚠️
+## ⚠️ limitations ⚠️
 
 Hindsight is still in development, and is not guaranteed to be stable. If you find a bug, please [open an issue](https://github.com/zeroXbrock/hindsight/issues).
-
-### limitations
 
 This project is an experiment. The profits estimated by this system are by no means definitive; they more accurately represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total profits which could be realized on MEV-Share should far exceed those which are estimated by this system.
 
@@ -27,7 +25,7 @@ The system currently only supports Uniswap V2/V3 and SushiSwap. More exchanges m
 
 The system currently only supports WETH as the input token, so that the arbitrage is always WETH -> TOKEN -> WETH.
 
-The system (the `scan` command specifically) is set up to retry indefinitely when the main loop crashes. This is because every once in a while, the system encounters a critical error related to a bad API response or a bug in the code. This is not ideal, but a retry usually fixes it. However, this means that your instance might spam your node with requests if it encounters a critical error. If you're running on a hosted node, this could waste your rate limit. Make sure to check on it while it's running. 👁️
+The system (the `scan` command specifically) is set up to retry indefinitely when the main loop crashes. This is because every once in a while, the system encounters a critical error, usually related to a bad API response. This is not ideal, but a retry usually fixes it. However, this means that your instance might spam your node with requests if it encounters an unrecoverable error. If you're running on a hosted node, this could waste your rate limit. Make sure to check on it while it's running. 👁️
 
 ## setup
 
