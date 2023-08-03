@@ -2,7 +2,9 @@
 
 Hindsight is an arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events.
 
-revm is used to simulate arbs with the help of an archive node that supports the `trace_callMany` API (such as [Erigon](https://github.com/ledgerwatch/erigon) or [Reth](https://github.com/paradigmxyz/reth)).
+revm is used to simulate arbs with the help of an Ethereum archive node that supports the `trace_callMany` API (see [requirements](#requirements) for node recommendations).
+
+> Just a warning: ⚠️ running Hindsight on a hosted node may require a high rate limit, which can be expensive.
 
 The arbitrage strategy implemented here is a relatively simple two-step arb: first, we simulate the user's trade, then swap WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and sell them on whichever supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
 
@@ -14,8 +16,10 @@ Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple st
 
 - [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
+  - [Erigon](https://github.com/ledgerwatch/erigon) and [Reth](https://github.com/paradigmxyz/reth) are good self-hosted options.
+  - [Infura](https://www.infura.io/solutions/archive-access) and [QuickNode](https://www.quicknode.com/core-api) offer hosted solutions (make sure you get an "archive node" plan if prompted for it).
 
-> The default environment (specified in [`.env.example`](.env.example)) assumes that you have an Ethereum node accessible on `ws://localhost:8545`.
+  > The default environment (specified in [`.env.example`](.env.example)) assumes that you have an Ethereum node accessible on `ws://localhost:8545`.
 
 **To build and run locally:**
 
