@@ -122,7 +122,7 @@ impl ArbDb {
         let sum_profit = arbs
             .iter()
             .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
-        info!("SUM PROFIT: {}", format_ether(sum_profit));
+        info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
         info!("(start,end) block: ({}, {})", start_block, end_block);
         info!(
             "time range: {} days",
