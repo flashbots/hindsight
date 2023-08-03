@@ -1,12 +1,15 @@
 # Hindsight
 
-Hindsight is an arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events.
+<!-- show ./header-img.png -->
+![hindsight visual algorithm](header-img.png)
+
+_Hindsight is an arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events._
 
 revm is used to simulate arbs with the help of an Ethereum archive node that supports the `trace_callMany` API (see [requirements](#requirements) for node recommendations).
 
 > Just a warning: ⚠️ running Hindsight on a hosted node may require a high rate limit, which can be expensive.
 
-The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and them simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
+The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and then simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
 
 Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
