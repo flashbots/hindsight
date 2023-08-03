@@ -46,7 +46,7 @@ cargo run -- --help
 
 ```sh
 docker build -t hindsight .
-docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight --help
+docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight --help
 ```
 
 > :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
@@ -56,7 +56,7 @@ docker run -it -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb:/
 All the tests are integration tests, so you'll have to have your environment (DB & ETH provider) set up to run them successfully.
 
 ```sh
-export RPC_URL_WS=ws://127.0.0.1:18545
+export RPC_URL_WS=ws://127.0.0.1:8545
 export DB_URL=mongodb://localhost:27017
 cargo test
 ```
@@ -78,14 +78,14 @@ With the DB and Ethereum RPC accessible on the host machine:
 *Docker .env config:*
 
 ```txt
-RPC_URL_WS=ws://host.docker.internal:18545
+RPC_URL_WS=ws://host.docker.internal:8545
 DB_URL=mongodb://host.docker.internal:27017
 ```
 
 Some linux machines don't like names; you may try this instead:
 
 ```txt
-RPC_URL_WS=ws://172.17.0.1:18545
+RPC_URL_WS=ws://172.17.0.1:8545
 DB_URL=mongodb://172.17.0.1:27017
 ```
 
@@ -94,12 +94,12 @@ DB_URL=mongodb://172.17.0.1:27017
 `.env` is optional. If you prefer, you can set environment variables directly in your shell:
 
 ```sh
-export RPC_URL_WS=ws://127.0.0.1:18545
+export RPC_URL_WS=ws://127.0.0.1:8545
 export DB_URL=mongodb://localhost:27017
 cargo run -- scan
 
 # alternatively, to pass the variables directly to hindsight rather than setting them in the shell
-RPC_URL_WS=ws://127.0.0.1:18545 \
+RPC_URL_WS=ws://127.0.0.1:8545 \
 DB_URL=mongodb://localhost:27017 \
 cargo run -- scan
 ```
@@ -147,7 +147,7 @@ In the directory where you want to put the files (we make an `arbData` directory
 
 ```sh
 mkdir -p arbData
-docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:18545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
+docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
 ```
 
 ## common errors
