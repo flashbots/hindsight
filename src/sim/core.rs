@@ -625,11 +625,12 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_tx() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_num = client.get_block_number().await?;
-        let mut evm = setup_test_evm(&client, block_num.as_u64() - 1).await?;
-        let block = client.get_block(block_num).await?.unwrap();
-        let tx_hash = block.transactions[0];
+        let tx_hash =
+            H256::from_str("0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a")
+                .unwrap();
         let tx = client.get_transaction(tx_hash).await?.unwrap();
+        let block_num = tx.block_number.unwrap() - 1;
+        let mut evm = setup_test_evm(&client, block_num.as_u64()).await?;
         let res = sim_bundle(&mut evm, vec![tx]).await;
         assert!(res.is_ok());
         let res = res.unwrap();
