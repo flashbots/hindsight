@@ -3,7 +3,7 @@
 <!-- show ./header-img.png -->
 ![hindsight visual algorithm](header-img.png)
 
-_Hindsight is an arbitrage simulator written in Rust which analyzes the historical value of MEV from Flashbots MEV-Share events._
+_Hindsight is an arbitrage simulator written in Rust which estimates the historical value of MEV from Flashbots MEV-Share events._
 
 revm is used to simulate arbs with the help of an Ethereum archive node that supports the `trace_callMany` API (see [requirements](#requirements) for node recommendations).
 
