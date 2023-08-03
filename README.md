@@ -27,7 +27,7 @@ The system currently only supports WETH as the input token, so that the arbitrag
 
 The system (the `scan` command specifically) is set up to retry indefinitely when the main loop crashes. This is because every once in a while, the system encounters a critical error related to a bad API response or a bug in the code. This is not ideal, but a retry usually fixes it. However, this means that your instance might spam your node with requests if it encounters a critical error. If you're running on a hosted node, this could be expensive. Make sure to keep an eye on it while it's running. 👁️
 
-The profits estimated by this system are not definitive; they more closely represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total realized profits on MEV-Share should exceed that which is estimated by this system.
+The profits estimated by this system are not definitive; they more closely represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total realized profits on MEV-Share should far exceed that which is estimated by this system.
 
 ## setup
 
