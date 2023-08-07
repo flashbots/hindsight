@@ -1,12 +1,12 @@
 use crate::{
     data::DbConnect,
-    info,
+    err, info,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
 use ethers::{types::U256, utils::format_ether};
 use futures::stream::TryStreamExt;
-use mongodb::Collection;
+use mongodb::{bson::doc, options::FindOptions, Collection};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -16,7 +16,7 @@ const EXPORT_DIR: &'static str = "./arbData";
 /// Arbitrage DB. Used for saving/loading results of simulations for long-term data analysis.
 #[derive(Clone, Debug)]
 pub struct ArbDb {
-    connect: DbConnect,
+    _connect: DbConnect,
     arb_collection: Collection<SimArbResultBatch>,
 }
 
@@ -54,7 +54,7 @@ impl ArbDb {
         let connect = DbConnect::new(name).init().await?;
         let arb_collection = connect.db.collection::<SimArbResultBatch>(ARB_COLLECTION);
         Ok(Self {
-            connect,
+            _connect: connect,
             arb_collection,
         })
     }
@@ -70,12 +70,8 @@ impl ArbDb {
         &self,
         filter_params: ArbFilterParams,
     ) -> Result<Vec<SimArbResultBatch>> {
-        let collection = self
-            .connect
-            .db
-            .collection::<SimArbResultBatch>(ARB_COLLECTION);
         // TODO: add filter params to query instead of filtering post-query
-        let mut cursor = collection.find(None, None).await?;
+        let mut cursor = self.arb_collection.find(None, None).await?;
         let mut results = vec![];
         while let Some(res) = cursor.try_next().await? {
             results.push(res);
@@ -154,22 +150,41 @@ impl ArbDb {
         Ok(())
     }
 
+    /// Retrieves the first arb in the DB (by lowest timestamp).
+    async fn get_arb_extrema(&self) -> Result<(SimArbResultBatch, SimArbResultBatch)> {
+        // find start
+        let find_options = FindOptions::builder()
+            .sort(doc! { "event.timestamp": 1 })
+            .build();
+        let mut cursor = self.arb_collection.find(None, find_options).await?;
+        let arb_start = cursor.try_next().await?;
+        // find end
+        let find_options = FindOptions::builder()
+            .sort(doc! { "event.timestamp": -1 })
+            .build();
+        let mut cursor = self.arb_collection.find(None, find_options).await?;
+        let arb_end = cursor.try_next().await?;
+        if arb_start.is_some() && arb_end.is_some() {
+            return Ok((arb_start.unwrap(), arb_end.unwrap()));
+        }
+        err!(
+            "failed to find arb range in DB. arb_start={:?} arb_end={:?}",
+            arb_start,
+            arb_end
+        )
+    }
+
     /// Gets the extrema of the blocks and timestamps of the arbs in the DB.
+    ///
+    /// It is assumed that the timestamps and blocks are both monotonically increasing,
+    /// so only timestamps need to be checked; checking block number would be redundant and less precise.
     pub async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
-        let mut all_arbs = self.read_arbs(ArbFilterParams::default()).await?;
-        // sort arbs by event block number
-        all_arbs.sort_by(|a, b| a.event.block.cmp(&b.event.block));
-        let earliest_block = all_arbs.first().map(|arb| arb.event.block).unwrap_or(0);
-        let latest_block = all_arbs.last().map(|arb| arb.event.block).unwrap_or(0);
-        // now sort arbs by event timestamp
-        all_arbs.sort_by(|a, b| a.event.timestamp.cmp(&b.event.timestamp));
-        let earliest_timestamp = all_arbs.first().map(|arb| arb.event.timestamp).unwrap_or(0);
-        let latest_timestamp = all_arbs.last().map(|arb| arb.event.timestamp).unwrap_or(0);
+        let (arb_start, arb_end) = self.get_arb_extrema().await?;
         Ok(StoredArbsRanges {
-            earliest_block,
-            latest_block,
-            earliest_timestamp,
-            latest_timestamp,
+            earliest_block: arb_start.event.block,
+            latest_block: arb_end.event.block,
+            earliest_timestamp: arb_start.event.timestamp,
+            latest_timestamp: arb_end.event.timestamp,
         })
     }
 }
@@ -221,7 +236,7 @@ mod test {
         // insert some test data first
         inject_test_arbs(&connect, 2).await?;
         let ranges = connect.get_previously_saved_ranges().await?;
-        println!("ranges: {:?}", ranges);
+        assert!(ranges.earliest_timestamp < ranges.latest_timestamp);
         Ok(())
     }
 
@@ -236,6 +251,17 @@ mod test {
                 ArbFilterParams::default(),
             )
             .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn it_gets_arb_extrema() -> Result<()> {
+        let connect = connect().await?;
+        inject_test_arbs(&connect, 13).await?;
+        let arb_range = connect.get_arb_extrema().await?;
+        println!("first arb: {:?}", arb_range.0);
+        println!("last arb: {:?}", arb_range.1);
+        assert!(arb_range.0.event.timestamp < arb_range.1.event.timestamp);
         Ok(())
     }
 }

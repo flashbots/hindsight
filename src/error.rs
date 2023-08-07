@@ -44,3 +44,10 @@ impl Into<Error> for HindsightError {
         }
     }
 }
+
+#[macro_export]
+macro_rules! err {
+    ($($arg:tt)*) => {
+        Err(anyhow::anyhow!(format!($($arg)*)))
+    };
+}
