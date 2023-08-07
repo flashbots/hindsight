@@ -5,17 +5,17 @@
 
 _Hindsight is an arbitrage simulator written in Rust which estimates the historical value of (Uniswap) MEV from Flashbots MEV-Share events._
 
-revm is used to simulate arbs with the help of an Ethereum archive node that supports the `trace_callMany` API (see [requirements](#requirements) for node recommendations).
+The simulation core uses [revm](https://github.com/bluealloy/revm) to simulate arbs locally by first getting state diffs from an Ethereum archive node that supports the `trace_callMany` API (see [requirements](#requirements) for node recommendations).
 
 > Just a warning: ⚠️ running Hindsight on a hosted node may require a high rate limit, which can be expensive.
 
-The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and then simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More may be added to improve odds of profitability.
+The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and then simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More exchanges may be added to improve odds of profitability.
 
 Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
 
 ## ⚠️ limitations ⚠️
 
-Hindsight is still in development, and is not guaranteed to be stable. If you find a bug, please [open an issue](https://github.com/zeroXbrock/hindsight/issues).
+Hindsight is still in development, and is not stable. If you find a bug, please [open an issue](https://github.com/zeroXbrock/hindsight/issues).
 
 This project is an experiment. The profits estimated by this system are by no means definitive; they more accurately represent a **lower bound** for the total addressable MEV on MEV-Share. With more complex strategies and more exchanges supported, total profits which could be realized on MEV-Share should far exceed those which are estimated by this system.
 
