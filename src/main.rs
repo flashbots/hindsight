@@ -66,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let config = Config::default();
     let cli = Cli::parse();
+    log4rs::init_file("log4rs.yml", Default::default()).expect("failed to load log4rs.yml");
 
     match cli.command {
         Some(Commands::Scan {

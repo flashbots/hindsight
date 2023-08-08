@@ -10,11 +10,11 @@ use futures::future;
 use mev_share_sse::EventHistory;
 
 #[derive(Clone, Debug)]
-pub struct Hindsight {
+pub struct Processor {
     pub client: WsClient,
 }
 
-impl Hindsight {
+impl Processor {
     pub async fn new(rpc_url_ws: String) -> Result<Self> {
         let client = get_ws_client(Some(rpc_url_ws)).await?;
         Ok(Self { client })
@@ -81,7 +81,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_processes_orderflow() -> Result<()> {
         let config = Config::default();
-        let hindsight = Hindsight::new(config.rpc_url_ws).await?;
+        let hindsight = Processor::new(config.rpc_url_ws).await?;
 
         // data from an actual juicy event
         let juicy_event: EventHistory = serde_json::from_value(json!({
