@@ -5,6 +5,7 @@ use hindsight::{
     config::Config,
     data::arbs::ArbFilterParams,
     debug, info,
+    logs::FileLogger,
 };
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 
@@ -63,8 +64,21 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    //
+    // let file_appender = get_file_appender();
+    // let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // tracing_subscriber::fmt().with_writer(non_blocking).init();
+
+    // let (non_blocking, _guard) =
+    //     tracing_appender::non_blocking(tracing_appender::rolling::minutely("./logs", "trace.log"));
     let config = Config::default();
+    let _f = if config.log_to_file {
+        println!("check `./logs/` for logs");
+        Some(FileLogger::new())
+    } else {
+        tracing_subscriber::fmt().init();
+        None
+    };
     let cli = Cli::parse();
 
     match cli.command {

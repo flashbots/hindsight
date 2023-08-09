@@ -4,6 +4,7 @@ pub mod data;
 pub mod error;
 pub mod event_history;
 pub mod interfaces;
+pub mod logs;
 pub mod processor;
 pub mod sim;
 pub mod util;

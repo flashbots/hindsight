@@ -21,5 +21,6 @@ serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
 tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
 tracing = "0.1.37"
-tracing-subscriber = "0.3.17"
+tracing-appender = "0.2.2"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter", "fmt", "json", "tracing-log", "tracing"] }
 uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}
