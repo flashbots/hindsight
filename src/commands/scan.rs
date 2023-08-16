@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::data::arbs::ArbDb;
 use crate::event_history::event_history_url;
-use crate::hindsight::Hindsight;
 use crate::info;
+use crate::processor::Processor;
 use crate::sim::processor::H256Map;
 use crate::util::{fetch_txs, filter_events_by_topic, get_ws_client};
 use crate::Result;
@@ -56,7 +56,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     );
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
-    let hindsight = Hindsight::new(config.rpc_url_ws).await?;
+    let hindsight = Processor::new(config.rpc_url_ws).await?;
     let db = ArbDb::new(None).await?;
 
     let mut event_params: EventHistoryParams = params.clone().into();

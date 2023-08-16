@@ -2,4 +2,5 @@
 target
 *.json
 arbData
+logs
 
