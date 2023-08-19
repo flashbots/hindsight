@@ -1,4 +1,3 @@
 pub mod arbs;
-mod db;
-
-pub use db::DbConnect;
+pub mod db;
+mod mongo;

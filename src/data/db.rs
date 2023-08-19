@@ -1,47 +1,26 @@
-use crate::config::Config;
-use crate::Result;
-
-use mongodb::{options::ClientOptions, Client as DbClient, Database};
+// TODO: TEST, THEN ADD POSTGRES SUPPORT
 use std::sync::Arc;
 
-const DB_NAME: &'static str = "hindsight";
-const PROJECT_NAME: &'static str = "simulator";
+use super::{arbs::ArbDatabase, mongo::MongoConnect};
 
-#[derive(Clone, Debug)]
-pub struct DbConnect {
-    // _client: Arc<DbClient>,
-    pub db: Arc<Database>,
+pub struct Db {
+    pub connect: ArbDatabase,
 }
 
-pub struct DbFactory {
-    name: String,
-    url: String,
+pub enum DbEngine {
+    Mongo,
+    // Postgres,
 }
 
-/// Creates a connected Db instance.
-impl DbFactory {
-    pub async fn init(self) -> Result<DbConnect> {
-        let mut options = ClientOptions::parse(self.url).await?;
-        options.app_name = Some(PROJECT_NAME.to_owned());
-        // options.default_database = Some(DB_NAME.to_owned());
-        options.credential = Some(
-            mongodb::options::Credential::builder()
-                .username("root".to_owned())
-                .password("example".to_owned())
-                .build(),
-        );
-        let db = Arc::new(DbClient::with_options(options)?.database(&self.name));
-        Ok(DbConnect { db })
-    }
-}
-
-/// Talks to the database.
-impl DbConnect {
-    pub fn new(name: Option<String>) -> DbFactory {
-        let url = Config::default().db_url;
-        DbFactory {
-            name: name.unwrap_or(DB_NAME.to_owned()),
-            url,
+impl Db {
+    pub async fn new(engine: DbEngine, db_name: Option<&str>) -> Self {
+        match engine {
+            DbEngine::Mongo => Db {
+                connect: Arc::new(MongoConnect::new(db_name).await.expect(&format!(
+                    "failed to connect to mongo db={}",
+                    db_name.unwrap_or("(default)")
+                ))),
+            }, // DbEngine::Postgres => Db { connect: }
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::data::arbs::ArbDb;
+use crate::data::db::{Db, DbEngine};
 use crate::event_history::event_history_url;
 use crate::hindsight::Hindsight;
 use crate::info;
@@ -57,7 +57,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
     let hindsight = Hindsight::new(config.rpc_url_ws).await?;
-    let db = ArbDb::new(None).await?;
+    // TODO: PARAMETTERIZE ENGINE OPTION IN COMMAND FLAGS
+    let db = Db::new(DbEngine::Mongo, None).await;
 
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(
@@ -79,7 +80,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         then we know we've scanned & simulated up to that point.
         Timestamp arg takes precedent over block if both are provided.
     */
-    let db_ranges = db.get_previously_saved_ranges().await?;
+    let db_ranges = db.connect.get_previously_saved_ranges().await?;
     info!("previously saved event ranges: {:?}", db_ranges);
     if params.timestamp_start.is_some() {
         event_params.timestamp_start = Some(
@@ -155,7 +156,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         */
         hindsight
             .to_owned()
-            .process_orderflow(&txs, batch_size, Some(Box::new(db.to_owned())), event_map)
+            .process_orderflow(&txs, batch_size, Some(db.connect.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
 
