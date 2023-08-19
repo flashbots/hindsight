@@ -13,6 +13,7 @@ use std::thread::available_parallelism;
 
 #[derive(Clone, Debug)]
 pub struct ScanOptions {
+    pub batch_size: Option<usize>,
     pub block_start: Option<u64>,
     pub block_end: Option<u64>,
     pub timestamp_start: Option<u64>,
@@ -20,7 +21,7 @@ pub struct ScanOptions {
     /// for saving
     pub filename_txs: Option<String>,
     pub filename_events: Option<String>,
-    pub batch_size: Option<usize>,
+    pub db_engine: DbEngine,
 }
 
 impl Into<EventHistoryParams> for ScanOptions {
@@ -57,8 +58,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
     let hindsight = Hindsight::new(config.rpc_url_ws).await?;
-    // TODO: PARAMETTERIZE ENGINE OPTION IN COMMAND FLAGS
-    let db = Db::new(DbEngine::Mongo, None).await;
+
+    let db = Db::new(params.db_engine.to_owned(), None).await;
 
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(

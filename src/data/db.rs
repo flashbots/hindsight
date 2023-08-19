@@ -7,9 +7,29 @@ pub struct Db {
     pub connect: ArbDatabase,
 }
 
+#[derive(Clone, Debug)]
 pub enum DbEngine {
     Mongo,
     // Postgres,
+}
+
+impl Default for DbEngine {
+    fn default() -> Self {
+        // TODO: make this postgres
+        DbEngine::Mongo
+    }
+}
+
+// serialize/deserialize from string
+impl std::str::FromStr for DbEngine {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mongo" => Ok(DbEngine::Mongo),
+            // "postgres" => Ok(DbEngine::Postgres),
+            _ => Err(format!("invalid db engine: {}", s)),
+        }
+    }
 }
 
 impl Db {

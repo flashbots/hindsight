@@ -3,7 +3,7 @@ use ethers::types::U256;
 use hindsight::{
     commands::{self},
     config::Config,
-    data::arbs::ArbFilterParams,
+    data::{arbs::ArbFilterParams, db::DbEngine},
     debug, info,
 };
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
@@ -35,6 +35,9 @@ enum Commands {
         /// Number of transactions to simulate concurrently. Defaults to 1/2 the CPU cores on host.
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
+        /// DB Engine to use to store arb data. Defaults to "mongo".
+        #[arg(long = "db")]
+        db_engine: Option<DbEngine>,
     },
     /// Export arbs from DB to a JSON file.
     Export {
@@ -74,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
             timestamp_end,
             timestamp_start,
             batch_size,
+            db_engine,
         }) => {
             debug!("scan command");
             let scan_options = commands::scan::ScanOptions {
@@ -84,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
                 filename_events: None,
                 filename_txs: None,
                 batch_size,
+                db_engine: db_engine.unwrap_or(DbEngine::default()),
             };
             loop {
                 let res = commands::scan::run(scan_options.to_owned(), config.to_owned()).await;
