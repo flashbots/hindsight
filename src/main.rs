@@ -36,7 +36,10 @@ enum Commands {
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
         /// DB Engine to use to store arb data. Defaults to "mongo".
-        #[arg(long = "db")]
+        #[arg(
+            long = "db",
+            help = &format!("<{}>: DB engine to store arb data, defaults to mongo", DbEngine::enum_flags())
+        )]
         db_engine: Option<DbEngine>,
     },
     /// Export arbs from DB to a JSON file.
