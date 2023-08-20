@@ -3,7 +3,10 @@ use ethers::types::U256;
 use hindsight::{
     commands::{self},
     config::Config,
-    data::{arbs::ArbFilterParams, db::DbEngine},
+    data::{
+        arbs::{ArbFilterParams, WriteEngine},
+        db::DbEngine,
+    },
     debug, info,
 };
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
@@ -64,6 +67,19 @@ enum Commands {
         /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e16 wei)
         #[arg(short = 'p', long)]
         min_profit: Option<f64>,
+        /// DB Engine to use to store arb data. Defaults to "mongo".
+        /// TODO: DRY this up
+        #[arg(
+            long = "db",
+            help = &format!("<{}>: DB engine to read arb data from, defaults to mongo", DbEngine::enum_flags())
+        )]
+        read_db: Option<DbEngine>,
+        #[arg(
+            short = 'o',
+            long = "db-out",
+            help = &format!("<{}>: DB engine to write arb data to, default None (save to file). Ignored if --filename is specified.", DbEngine::enum_flags())
+        )]
+        write_db: Option<DbEngine>,
     },
 }
 
@@ -107,6 +123,8 @@ async fn main() -> anyhow::Result<()> {
             timestamp_end,
             timestamp_start,
             min_profit,
+            read_db,
+            write_db,
         }) => {
             let min_profit = if let Some(min_profit) = min_profit {
                 min_profit
@@ -115,8 +133,19 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
+
+            // if filename is specified, use that, otherwise use write_engine
+            // if write_engine is not specified, use default filename & file exporter
+            let write_dest = if filename.is_some() {
+                WriteEngine::File(filename)
+            } else {
+                if let Some(write_db) = write_db {
+                    WriteEngine::Db(write_db)
+                } else {
+                    WriteEngine::File(None)
+                }
+            };
             commands::export::run(
-                filename,
                 ArbFilterParams {
                     block_end,
                     block_start,
@@ -124,6 +153,8 @@ async fn main() -> anyhow::Result<()> {
                     timestamp_start,
                     min_profit: Some(umin_profit),
                 },
+                read_db.unwrap_or(DbEngine::default()),
+                write_dest,
             )
             .await?;
         }

@@ -79,20 +79,14 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         value + 1 in the DB if it's higher than the param.
         We add 1 to prevent duplicates. If an arb is saved in the DB,
         then we know we've scanned & simulated up to that point.
-        Timestamp arg takes precedent over block if both are provided.
+        Timestamp is evaluated by default, falls back to block.
     */
     let db_ranges = db.connect.get_previously_saved_ranges().await?;
     info!("previously saved event ranges: {:?}", db_ranges);
-    if params.timestamp_start.is_some() {
-        event_params.timestamp_start = Some(
-            params
-                .timestamp_start
-                .unwrap()
-                .max(db_ranges.latest_timestamp + 1),
-        );
-    } else if params.block_start.is_some() {
-        event_params.block_start =
-            Some(params.block_start.unwrap().max(db_ranges.latest_block + 1));
+    if let Some(timestamp_start) = params.timestamp_start {
+        event_params.timestamp_start = Some(timestamp_start.max(db_ranges.latest_timestamp + 1));
+    } else if let Some(block_start) = params.block_start {
+        event_params.block_start = Some(block_start.max(db_ranges.latest_block + 1));
     }
 
     info!(

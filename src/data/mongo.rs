@@ -1,21 +1,17 @@
 use crate::interfaces::StoredArbsRanges;
 use crate::Result;
-use crate::{config::Config, info, interfaces::SimArbResultBatch};
+use crate::{config::Config, interfaces::SimArbResultBatch};
 
-use super::arbs::{ArbFilterParams, ArbInterface};
+use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
 use async_trait::async_trait;
-use ethers::{types::U256, utils::format_ether};
 use futures::stream::TryStreamExt;
 use mongodb::{bson::doc, options::FindOptions, Collection};
 use mongodb::{options::ClientOptions, Client as DbClient, Database};
-use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::sync::Arc;
 
 const DB_NAME: &'static str = "hindsight";
 const PROJECT_NAME: &'static str = "simulator";
 const ARB_COLLECTION: &'static str = "arbs";
-const EXPORT_DIR: &'static str = "./arbData";
 
 #[derive(Debug, Clone)]
 pub struct MongoConnect {
@@ -100,62 +96,6 @@ impl ArbInterface for MongoConnect {
         Ok(results)
     }
 
-    /// Saves arbs in JSON format to given filename. `.json` is appended to the filename if the filename doesn't have it already.
-    ///
-    /// Save all files in `./arbData/`
-    async fn export_arbs(
-        &self,
-        filename: Option<String>,
-        filter_params: ArbFilterParams,
-    ) -> Result<()> {
-        let arbs = self.read_arbs(filter_params).await?;
-        let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
-        let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
-        let start_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .min()
-            .unwrap_or(0);
-        let end_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .max()
-            .unwrap_or(0);
-        let sum_profit = arbs
-            .iter()
-            .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
-        info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
-        info!("(start,end) block: ({}, {})", start_block, end_block);
-        info!(
-            "time range: {} days",
-            (end_timestamp - start_timestamp) as f64 / 86400_f64
-        );
-        let filename = filename.unwrap_or(format!(
-            "arbs_{}.json",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs()
-        ));
-        let filename = if filename.ends_with(".json") {
-            filename.to_owned()
-        } else {
-            format!("{}.json", filename)
-        };
-        // create ./arbData/ if it doesn't exist
-        std::fs::create_dir_all(EXPORT_DIR)?;
-        let filename = format!("{}/{}", EXPORT_DIR, filename);
-        if arbs.len() > 0 {
-            info!("exporting {} arbs to file {}...", arbs.len(), filename);
-            let file = File::create(filename)?;
-            let mut writer = BufWriter::new(file);
-            serde_json::to_writer_pretty(&mut writer, &arbs)?;
-            writer.flush()?;
-        } else {
-            info!("no arbs found to export.");
-        }
-        Ok(())
-    }
-
     /// Gets the extrema of the blocks and timestamps of the arbs in the DB.
     ///
     /// It is assumed that the timestamps and blocks are both monotonically increasing,
@@ -179,6 +119,16 @@ impl ArbInterface for MongoConnect {
             latest_timestamp,
         })
     }
+
+    async fn export_arbs(
+        &self,
+        write_dest: WriteEngine,
+        filter_params: ArbFilterParams,
+    ) -> Result<()> {
+        // TODO: find a more idiomatic way of implementing this for every ArbInterface impl
+        export_arbs_core(self, write_dest, filter_params).await?;
+        Ok(())
+    }
 }
 
 // TODO: move these, generalize connect to test both dbs
@@ -190,7 +140,7 @@ mod test {
     const TEST_DB: &'static str = "test_hindsight";
 
     async fn inject_test_arbs(
-        connect: &MongoConnect,
+        connect: &dyn ArbInterface,
         quantity: u64,
     ) -> Result<Vec<SimArbResultBatch>> {
         let mut arbs = vec![];
@@ -242,7 +192,7 @@ mod test {
         inject_test_arbs(&connect, 13).await?;
         connect
             .export_arbs(
-                Some("test_arbs.json".to_owned()),
+                WriteEngine::File(Some("test_arbs.json".to_owned())),
                 ArbFilterParams::default(),
             )
             .await?;

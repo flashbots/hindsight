@@ -1,8 +1,8 @@
 // TODO: TEST, THEN ADD POSTGRES SUPPORT
+use super::{arbs::ArbDatabase, mongo::MongoConnect};
+use crate::Result;
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
-
-use super::{arbs::ArbDatabase, mongo::MongoConnect};
 
 pub struct Db {
     pub connect: ArbDatabase,

@@ -1,12 +1,13 @@
-use crate::data::arbs::ArbFilterParams;
-use crate::data::db::Db;
+use crate::data::arbs::{ArbFilterParams, WriteEngine};
+use crate::data::db::{Db, DbEngine};
 use crate::Result;
 
-pub async fn run(filename: Option<String>, params: ArbFilterParams) -> Result<()> {
-    // TODO: PARAMETERIZE ENGINE W/ COMMAND FLAGS
-    let db = Db::new(crate::data::db::DbEngine::Mongo, None)
-        .await
-        .connect;
-    db.export_arbs(filename, params).await?;
+pub async fn run(
+    params: ArbFilterParams,
+    read_db_engine: DbEngine,
+    write_dest: WriteEngine,
+) -> Result<()> {
+    let db = Db::new(read_db_engine, None).await.connect;
+    db.export_arbs(write_dest, params).await?;
     Ok(())
 }
