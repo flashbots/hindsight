@@ -16,13 +16,14 @@ ethers = "2.0.7"
 futures = "0.3.28"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
 mongodb = {version = "2.6.0", features = ["tracing"]}
-postgres = "0.19.5"
+postgres-openssl = "0.5.0"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
 rusty-sando = {path = "./rusty-sando/bot"}
 serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
 strum = { version = "0.25.0", features = ["std", "derive", "strum_macros"] }
 tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
+tokio-postgres = { version = "0.7.9", features = ["with-serde_json-1"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
 uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}

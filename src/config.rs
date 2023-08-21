@@ -4,13 +4,8 @@ use std::env;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub rpc_url_ws: String,
-    pub db_url: String,
-}
-
-impl Config {
-    pub fn new(rpc_url_ws: String, db_url: String) -> Config {
-        Config { rpc_url_ws, db_url }
-    }
+    pub mongo_url: String,
+    pub postgres_url: Option<String>,
 }
 
 impl Default for Config {
@@ -21,7 +16,8 @@ impl Default for Config {
             debug!("{}", err);
         }
         Config {
-            db_url: env::var("DB_URL").expect("DB_URL must be set"),
+            mongo_url: env::var("MONGO_URL").expect("MONGO_URL must be set"),
+            postgres_url: env::var("POSTGRES_URL").ok(),
             rpc_url_ws: env::var("RPC_URL_WS").expect("RPC_URL_WS must be set"),
         }
     }

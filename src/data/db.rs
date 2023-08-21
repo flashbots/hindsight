@@ -1,6 +1,6 @@
 // TODO: TEST, THEN ADD POSTGRES SUPPORT
 use super::{arbs::ArbDatabase, mongo::MongoConnect};
-use crate::Result;
+use crate::{config::Config, Result};
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
 
@@ -58,10 +58,14 @@ impl Db {
     pub async fn new(engine: DbEngine, db_name: Option<&str>) -> Self {
         match engine {
             DbEngine::Mongo => Db {
-                connect: Arc::new(MongoConnect::new(db_name).await.expect(&format!(
-                    "failed to connect to mongo db={}",
-                    db_name.unwrap_or("(default)")
-                ))),
+                connect: Arc::new(
+                    MongoConnect::new(db_name, Config::default().mongo_url)
+                        .await
+                        .expect(&format!(
+                            "failed to connect to mongo db={}",
+                            db_name.unwrap_or("(default)")
+                        )),
+                ),
             },
             // DbEngine::Postgres => Db {
             //     connect: Arc::new(MongoConnect::new(db_name).await.expect(&format!(

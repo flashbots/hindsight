@@ -135,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
             let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
 
             // if filename is specified, use that, otherwise use write_engine
-            // if write_engine is not specified, use default filename & file exporter
+            // if filename & write_engine are both not specified, use file exporter & default filename
             let write_dest = if filename.is_some() {
                 WriteEngine::File(filename)
             } else {

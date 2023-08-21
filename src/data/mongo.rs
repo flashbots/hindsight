@@ -1,6 +1,6 @@
+use crate::interfaces::SimArbResultBatch;
 use crate::interfaces::StoredArbsRanges;
 use crate::Result;
-use crate::{config::Config, interfaces::SimArbResultBatch};
 
 use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
 use async_trait::async_trait;
@@ -21,8 +21,7 @@ pub struct MongoConnect {
 /// Talks to the database.
 impl MongoConnect {
     /// Creates a new ArbDb instance, which connects to the arb collection.
-    pub async fn new(name: Option<&str>) -> Result<Self> {
-        let url = Config::default().db_url;
+    pub async fn new(name: Option<&str>, url: String) -> Result<Self> {
         let db = MongoConnect::init_db(url, name).await?;
         let arb_collection = Arc::new(db.collection::<SimArbResultBatch>(ARB_COLLECTION));
         Ok(Self { arb_collection })
@@ -31,7 +30,6 @@ impl MongoConnect {
     async fn init_db(url: String, db_name: Option<&str>) -> Result<Arc<Database>> {
         let mut options = ClientOptions::parse(url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
-        // options.default_database = Some(DB_NAME.to_owned());
         options.credential = Some(
             mongodb::options::Credential::builder()
                 .username("root".to_owned())
@@ -135,7 +133,7 @@ impl ArbInterface for MongoConnect {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{interfaces::SimArbResultBatch, Result};
+    use crate::{config::Config, interfaces::SimArbResultBatch, Result};
 
     const TEST_DB: &'static str = "test_hindsight";
 
@@ -155,7 +153,8 @@ mod test {
     }
 
     async fn connect() -> Result<MongoConnect> {
-        let connect = MongoConnect::new(Some(TEST_DB)).await?;
+        let url = Config::default().mongo_url;
+        let connect = MongoConnect::new(Some(TEST_DB), url).await?;
         Ok(connect)
     }
 
