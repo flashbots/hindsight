@@ -93,7 +93,7 @@ pub async fn export_arbs_core(
             save_arbs_to_file(filename, arbs.to_vec())?;
         }
         WriteEngine::Db(engine) => {
-            let db = Db::new(engine, None).await;
+            let db = Db::new(engine).await;
             db.connect.write_arbs(&arbs).await?;
         }
     }

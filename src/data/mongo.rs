@@ -9,7 +9,7 @@ use mongodb::{bson::doc, options::FindOptions, Collection};
 use mongodb::{options::ClientOptions, Client as DbClient, Database};
 use std::sync::Arc;
 
-const DB_NAME: &'static str = "hindsight";
+pub const DB_NAME: &'static str = "hindsight";
 const PROJECT_NAME: &'static str = "simulator";
 const ARB_COLLECTION: &'static str = "arbs";
 
@@ -21,13 +21,13 @@ pub struct MongoConnect {
 /// Talks to the database.
 impl MongoConnect {
     /// Creates a new ArbDb instance, which connects to the arb collection.
-    pub async fn new(name: Option<&str>, url: String) -> Result<Self> {
+    pub async fn new(url: String, name: &str) -> Result<Self> {
         let db = MongoConnect::init_db(url, name).await?;
         let arb_collection = Arc::new(db.collection::<SimArbResultBatch>(ARB_COLLECTION));
         Ok(Self { arb_collection })
     }
 
-    async fn init_db(url: String, db_name: Option<&str>) -> Result<Arc<Database>> {
+    async fn init_db(url: String, db_name: &str) -> Result<Arc<Database>> {
         let mut options = ClientOptions::parse(url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
         options.credential = Some(
@@ -36,7 +36,7 @@ impl MongoConnect {
                 .password("example".to_owned())
                 .build(),
         );
-        let db = Arc::new(DbClient::with_options(options)?.database(db_name.unwrap_or(DB_NAME)));
+        let db = Arc::new(DbClient::with_options(options)?.database(db_name));
         Ok(db)
     }
 
@@ -154,7 +154,7 @@ mod test {
 
     async fn connect() -> Result<MongoConnect> {
         let url = Config::default().mongo_url;
-        let connect = MongoConnect::new(Some(TEST_DB), url).await?;
+        let connect = MongoConnect::new(url, TEST_DB).await?;
         Ok(connect)
     }
 

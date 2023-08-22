@@ -59,7 +59,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let mevshare = EventClient::default();
     let hindsight = Hindsight::new(config.rpc_url_ws).await?;
 
-    let db = Db::new(params.db_engine.to_owned(), None).await;
+    let db = Db::new(params.db_engine.to_owned()).await;
 
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(

@@ -1,5 +1,9 @@
 // TODO: TEST, THEN ADD POSTGRES SUPPORT
-use super::{arbs::ArbDatabase, mongo::MongoConnect};
+use super::{
+    arbs::ArbDatabase,
+    mongo::{MongoConnect, DB_NAME},
+    postgres::PostgresConnect,
+};
 use crate::{config::Config, Result};
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
@@ -11,7 +15,7 @@ pub struct Db {
 #[derive(Clone, Debug, EnumIter)]
 pub enum DbEngine {
     Mongo,
-    // Postgres,
+    Postgres,
 }
 
 impl DbEngine {
@@ -37,7 +41,7 @@ impl std::fmt::Display for DbEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DbEngine::Mongo => write!(f, "mongo"),
-            // DbEngine::Postgres => write!(f, "postgres"),
+            DbEngine::Postgres => write!(f, "postgres"),
         }
     }
 }
@@ -55,24 +59,38 @@ impl std::str::FromStr for DbEngine {
 }
 
 impl Db {
-    pub async fn new(engine: DbEngine, db_name: Option<&str>) -> Self {
+    pub async fn new(engine: DbEngine) -> Self {
+        let db_name = if cfg!(test) {
+            // separate test db
+            "test_hindsight"
+        } else {
+            DB_NAME
+        };
         match engine {
             DbEngine::Mongo => Db {
                 connect: Arc::new(
-                    MongoConnect::new(db_name, Config::default().mongo_url)
+                    MongoConnect::new(Config::default().mongo_url, db_name)
                         .await
                         .expect(&format!(
-                            "failed to connect to mongo db={}",
-                            db_name.unwrap_or("(default)")
+                            "failed to connect to mongo db at {}",
+                            Config::default().mongo_url
                         )),
                 ),
             },
-            // DbEngine::Postgres => Db {
-            //     connect: Arc::new(MongoConnect::new(db_name).await.expect(&format!(
-            //         "failed to connect to mongo db={}",
-            //         db_name.unwrap_or("(default)")
-            //     ))),
-            // },
+            DbEngine::Postgres => Db {
+                connect: Arc::new(
+                    PostgresConnect::new(
+                        Config::default()
+                            .postgres_url
+                            .expect("must set POSTGRES_URL env var"),
+                    )
+                    .await
+                    .expect(&format!(
+                        "failed to connect to postgres db at {:?}",
+                        Config::default().postgres_url
+                    )),
+                ),
+            },
         }
     }
 }

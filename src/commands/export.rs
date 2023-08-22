@@ -7,7 +7,7 @@ pub async fn run(
     read_db_engine: DbEngine,
     write_dest: WriteEngine,
 ) -> Result<()> {
-    let db = Db::new(read_db_engine, None).await.connect;
+    let db = Db::new(read_db_engine).await.connect;
     db.export_arbs(write_dest, params).await?;
     Ok(())
 }

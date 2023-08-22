@@ -135,7 +135,7 @@ mod tests {
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
-        let test_db = Db::new(DbEngine::Mongo, Some("test")).await;
+        let test_db = Db::new(DbEngine::Mongo).await;
 
         // run the sim, it will save a result to the "test" DB
         hindsight

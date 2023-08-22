@@ -1,5 +1,5 @@
-use ethers::types::{Address, H256, I256, U256};
-use mev_share_sse::{EventHistory, Hint};
+use ethers::types::{Address, I256, U256};
+use mev_share_sse::EventHistory;
 use serde::{self, Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -73,22 +73,32 @@ pub enum PoolVariant {
     UniswapV3,
 }
 
-impl SimArbResultBatch {
-    pub fn test_example() -> Self {
-        Self {
-            event: EventHistory {
-                block: 9001,
-                timestamp: 9001,
-                hint: Hint {
-                    txs: vec![],
-                    hash: H256::zero(),
-                    logs: vec![],
-                    gas_used: None,
-                    mev_gas_price: None,
+#[cfg(test)]
+mod test {
+    use super::*;
+    use ethers::types::H256;
+    use mev_share_sse::Hint;
+    use rand::Rng;
+    impl SimArbResultBatch {
+        pub fn test_example() -> Self {
+            // get random u64
+            let mut rng = rand::thread_rng();
+            let rnum = rng.gen_range(0..100000);
+            Self {
+                event: EventHistory {
+                    block: 9001,
+                    timestamp: 9001,
+                    hint: Hint {
+                        txs: vec![],
+                        hash: H256::from_low_u64_be(rnum),
+                        logs: vec![],
+                        gas_used: None,
+                        mev_gas_price: None,
+                    },
                 },
-            },
-            results: vec![],
-            max_profit: 0x1337.into(),
+                results: vec![],
+                max_profit: 0x1337.into(),
+            }
         }
     }
 }
