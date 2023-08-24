@@ -52,7 +52,7 @@ impl std::str::FromStr for DbEngine {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "mongo" => Ok(DbEngine::Mongo),
-            // "postgres" => Ok(DbEngine::Postgres),
+            "postgres" => Ok(DbEngine::Postgres),
             _ => Err(format!("invalid db engine: {}", s)),
         }
     }

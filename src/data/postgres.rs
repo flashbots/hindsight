@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 use super::arbs::{ArbFilterParams, ArbInterface, WriteEngine};
 use crate::{
     err,
@@ -7,8 +6,11 @@ use crate::{
     Result,
 };
 use async_trait::async_trait;
+use ethers::utils::format_ether;
 use futures::future::join_all;
 use tokio_postgres::{connect, Client, NoTls};
+use ethers::abi::AbiEncode;
+use rust_decimal::prelude::*;
 // use postgres_openssl::;
 
 const ARBS_TABLE: &'static str = "mev_lower_bound";
@@ -41,7 +43,7 @@ impl PostgresConnect {
                 &format!(
                     "CREATE TABLE IF NOT EXISTS {} (
                         tx_hash VARCHAR(66) NOT NULL PRIMARY KEY,
-                        profit BIGINT NOT NULL
+                        profit NUMERIC NOT NULL
                     )",
                     ARBS_TABLE
                 ),
@@ -66,7 +68,8 @@ impl ArbInterface for PostgresConnect {
     async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
         let handles = arbs.iter().map(|arb| {
             let txhash = format!("{:?}", arb.event.hint.hash); // must be a better way than this :\
-            let profit = arb.max_profit.as_u64() as i64; // TODO WTF DOESNT THIS LIB SUPPORT BIGINTS???
+            let profit = Decimal::from_str(&format_ether(arb.max_profit)).expect("failed to encode profit");
+
             println!("writing arb to postgres: {} {}", txhash.to_string(), arb.max_profit);
             let client = self.client.clone();
             tokio::task::spawn(async move {

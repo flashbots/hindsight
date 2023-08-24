@@ -19,6 +19,7 @@ mongodb = {version = "2.6.0", features = ["tracing"]}
 postgres-openssl = "0.5.0"
 rand = "0.8.5"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
+rust_decimal = { version = "1.32.0", features = ["tokio-pg"] }
 rusty-sando = {path = "./rusty-sando/bot"}
 serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
