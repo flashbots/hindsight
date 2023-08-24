@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use ethers::utils::format_ether;
 use futures::future::join_all;
 use tokio_postgres::{connect, Client, NoTls};
-use ethers::abi::AbiEncode;
 use rust_decimal::prelude::*;
 // use postgres_openssl::;
 
