@@ -38,9 +38,36 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
   > The default environment (specified in [`.env.example`](.env.example)) assumes that you have an Ethereum node accessible on `ws://localhost:8545`.
 
-**To build and run locally:**
+### To build and run locally
 
 - [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
+
+#### system dependencies
+
+```sh
+# Debian/Ubuntu
+sudo apt install build-essential libssl-dev pkg-config
+```
+
+#### get submodules
+
+```sh
+git submodule update --init
+```
+
+### connecting to DBs with TLS
+
+Get the CA file:
+
+```sh
+./get-ca.sh
+```
+
+Enable TLS for the db in `.env`:
+
+```txt
+TLS_ENABLED_MONGO=true
+```
 
 ### spin up DB
 
