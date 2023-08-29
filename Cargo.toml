@@ -15,7 +15,7 @@ dotenvy = "0.15.7"
 ethers = "2.0.7"
 futures = "0.3.28"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
-mongodb = {version = "2.6.0", features = ["tracing"]}
+mongodb = { version = "2.6.0", features = ["tracing", "openssl-tls"] }
 postgres-openssl = "0.5.0"
 rand = "0.8.5"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}

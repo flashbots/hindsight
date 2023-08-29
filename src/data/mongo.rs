@@ -30,12 +30,6 @@ impl MongoConnect {
     async fn init_db(url: String, db_name: &str) -> Result<Arc<Database>> {
         let mut options = ClientOptions::parse(url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
-        options.credential = Some(
-            mongodb::options::Credential::builder()
-                .username("root".to_owned())
-                .password("example".to_owned())
-                .build(),
-        );
         let db = Arc::new(DbClient::with_options(options)?.database(db_name));
         Ok(db)
     }
