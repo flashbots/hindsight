@@ -5,8 +5,11 @@ use crate::Result;
 use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
+use mongodb::options::Tls;
+use mongodb::options::TlsOptions;
 use mongodb::{bson::doc, options::FindOptions, Collection};
 use mongodb::{options::ClientOptions, Client as DbClient, Database};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const DB_NAME: &'static str = "hindsight";
@@ -18,18 +21,44 @@ pub struct MongoConnect {
     arb_collection: Arc<Collection<SimArbResultBatch>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct MongoConfig {
+    pub url: String,
+    pub tls_ca_file_path: Option<PathBuf>,
+}
+
+impl Default for MongoConfig {
+    fn default() -> Self {
+        let config = crate::config::Config::default();
+        Self {
+            url: config.mongo_url,
+            tls_ca_file_path: config.tls_ca_file_mongo,
+        }
+    }
+}
+
 /// Talks to the database.
 impl MongoConnect {
     /// Creates a new ArbDb instance, which connects to the arb collection.
-    pub async fn new(url: String, name: &str) -> Result<Self> {
-        let db = MongoConnect::init_db(url, name).await?;
+    pub async fn new(config: MongoConfig) -> Result<Self> {
+        let db = MongoConnect::init_db(config).await?;
         let arb_collection = Arc::new(db.collection::<SimArbResultBatch>(ARB_COLLECTION));
         Ok(Self { arb_collection })
     }
 
-    async fn init_db(url: String, db_name: &str) -> Result<Arc<Database>> {
-        let mut options = ClientOptions::parse(url).await?;
+    /// if tls_ca_file_path is None, then TLS is disabled
+    async fn init_db(config: MongoConfig) -> Result<Arc<Database>> {
+        let mut options = ClientOptions::parse(config.url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
+        options.tls = Some(config.tls_ca_file_path.map_or(Tls::Disabled, |ca_path| {
+            Tls::Enabled(TlsOptions::builder().ca_file_path(ca_path).build())
+        }));
+        let db_name = if cfg!(test) {
+            // separate test db
+            "test_hindsight"
+        } else {
+            DB_NAME
+        };
         let db = Arc::new(DbClient::with_options(options)?.database(db_name));
         Ok(db)
     }
@@ -129,8 +158,6 @@ mod test {
     use super::*;
     use crate::{config::Config, interfaces::SimArbResultBatch, Result};
 
-    const TEST_DB: &'static str = "test_hindsight";
-
     async fn inject_test_arbs(
         connect: &dyn ArbInterface,
         quantity: u64,
@@ -147,8 +174,12 @@ mod test {
     }
 
     async fn connect() -> Result<MongoConnect> {
-        let url = Config::default().mongo_url;
-        let connect = MongoConnect::new(url, TEST_DB).await?;
+        let config = Config::default();
+        let connect = MongoConnect::new(MongoConfig {
+            url: config.mongo_url,
+            tls_ca_file_path: config.tls_ca_file_mongo,
+        })
+        .await?;
         Ok(connect)
     }
 

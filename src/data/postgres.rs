@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use super::arbs::{ArbFilterParams, ArbInterface, WriteEngine};
 use crate::{
     err,
@@ -8,8 +7,9 @@ use crate::{
 use async_trait::async_trait;
 use ethers::utils::format_ether;
 use futures::future::join_all;
-use tokio_postgres::{connect, Client, NoTls};
 use rust_decimal::prelude::*;
+use std::sync::Arc;
+use tokio_postgres::{connect, Client, NoTls};
 // use postgres_openssl::;
 
 const ARBS_TABLE: &'static str = "mev_lower_bound";
@@ -18,8 +18,22 @@ pub struct PostgresConnect {
     client: Arc<Client>,
 }
 
+#[derive(Clone, Debug)]
+pub struct PostgresConfig {
+    pub url: String,
+}
+
+impl Default for PostgresConfig {
+    fn default() -> Self {
+        let config = crate::config::Config::default();
+        Self {
+            url: config.postgres_url.unwrap(),
+        }
+    }
+}
+
 impl PostgresConnect {
-    pub async fn new(db_url: String) -> Result<Self> {
+    pub async fn new(config: PostgresConfig) -> Result<Self> {
         // TODO: add env var
         // let pg_tls = false;
         // let tls = if pg_tls {
@@ -27,7 +41,7 @@ impl PostgresConnect {
         // } else {
         //     NoTls
         // };
-        let (client, connection) = connect(&db_url, NoTls).await?;
+        let (client, connection) = connect(&config.url, NoTls).await?;
         // The connection object performs the actual communication with the database,
         // so spawn it off to run on its own.
         tokio::spawn(async move {
@@ -113,7 +127,10 @@ mod tests {
             println!("no postgres url, skipping test");
             return Ok(());
         }
-        let connect = PostgresConnect::new(config.postgres_url.unwrap()).await?;
+        let connect = PostgresConnect::new(PostgresConfig {
+            url: config.postgres_url.unwrap(),
+        })
+        .await?;
         let res = connect
             .client
             .execute("CREATE TABLE test001 (id serial)", &[])
@@ -159,7 +176,10 @@ mod tests {
             println!("no postgres url, skipping test");
             return Ok(());
         }
-        let connect = PostgresConnect::new(config.postgres_url.unwrap()).await?;
+        let connect = PostgresConnect::new(PostgresConfig {
+            url: config.postgres_url.unwrap(),
+        })
+        .await?;
         inject_test_arbs(&connect).await?;
         let res = connect
             .client

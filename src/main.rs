@@ -6,6 +6,7 @@ use hindsight::{
     data::{
         arbs::{ArbFilterParams, WriteEngine},
         db::DbEngine,
+        MongoConfig,
     },
     debug, info,
 };
@@ -107,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
                 filename_events: None,
                 filename_txs: None,
                 batch_size,
-                db_engine: db_engine.unwrap_or(DbEngine::default()),
+                db_engine: db_engine.unwrap_or(DbEngine::Mongo(MongoConfig::default())),
             };
             loop {
                 let res = commands::scan::run(scan_options.to_owned(), config.to_owned()).await;
@@ -153,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
                     timestamp_start,
                     min_profit: Some(umin_profit),
                 },
-                read_db.unwrap_or(DbEngine::default()),
+                read_db.unwrap_or(DbEngine::Mongo(MongoConfig::default())),
                 write_dest,
             )
             .await?;
