@@ -3,7 +3,7 @@ use super::{
     mongo::{MongoConfig, MongoConnect},
     postgres::{PostgresConfig, PostgresConnect},
 };
-use crate::{config::Config, Result};
+use crate::Result;
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
 
@@ -48,11 +48,6 @@ impl std::str::FromStr for DbEngine {
             _ => Err(format!("invalid db engine: {}", s)),
         }
     }
-}
-
-pub struct DbConfig {
-    pub engine: DbEngine,
-    pub db_name: Config,
 }
 
 impl Db {
