@@ -9,7 +9,7 @@ use futures::future::join_all;
 use rust_decimal::prelude::*;
 use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
-// use postgres_openssl::;
+// use postgres_openssl; // TODO: support postgres tls
 
 const ARBS_TABLE: &'static str = "hindsight";
 
@@ -134,29 +134,8 @@ mod tests {
         Ok(())
     }
 
-    // TODO: DELETE THIS; ONLY USED FOR TESTING
-    // #[tokio::test]
-    // async fn it_drops_arbs_postgres() -> Result<()> {
-    //     let config = Config::default();
-    //     if config.postgres_url.is_none() {
-    //         println!("no postgres url, skipping test");
-    //         return Ok(());
-    //     }
-    //     let connect = PostgresConnect::new(config.postgres_url.unwrap()).await?;
-    //     connect.drop_arbs().await?;
-    //     Ok(())
-    // }
-
-    // #[tokio::test]
-    // async fn it_writes_to_db() -> Result<()> {
-    //     let config = Config::default();
-    //     let connect = PostgresConnect::new(config.postgres_url).await?;
-    //     let arbs = vec![SimArbResultBatch::test_example()];
-    //     connect.write_arbs(&arbs).await?;
-    //     Ok(())
-    // }
-
-    async fn inject_test_arbs(connect: &PostgresConnect) -> Result<()> {
+    /// sends a test arb to the db
+    async fn inject_test_arb(connect: &PostgresConnect) -> Result<()> {
         let arbs = vec![SimArbResultBatch::test_example()];
         connect.write_arbs(&arbs).await?;
         Ok(())
@@ -173,7 +152,7 @@ mod tests {
             url: config.postgres_url.unwrap(),
         })
         .await?;
-        inject_test_arbs(&connect).await?;
+        inject_test_arb(&connect).await?;
         let res = connect
             .client
             .query(&format!("SELECT * FROM {}", ARBS_TABLE), &[])
