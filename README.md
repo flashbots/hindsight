@@ -29,6 +29,10 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
 ## setup
 
+### 🚧 DB implementation incomplete 🚧
+
+The system defaults to using mongo as the database to store arb simulation results. Postgres can be used (add `--help` to any command for details) but currently it only stores `tx_hash` and `profit`, whereas mongo stores all event and arbitrage trade data. Postgres functionality may be improved later on.
+
 ### requirements
 
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
@@ -87,17 +91,25 @@ MONGO_URL=mongodb://root:example@localhost:27017 \
 cargo run -- scan
 ```
 
-#### system dependencies
+### system dependencies
 
 ```sh
 # Debian/Ubuntu
 sudo apt install build-essential libssl-dev pkg-config
 ```
 
-#### get submodules
+### get submodules
+
+You need to git the rusty-sando submodule at the specific commit specified in `.gitmodules`. Run this to sync the submodule:
 
 ```sh
 git submodule update --init
+```
+
+Alternatively, you could clone the repo with the `--recurse-submodules` flag:
+
+```sh
+git clone --recurse-submodules https://github.com/zeroXbrock/hindsight
 ```
 
 ### connecting to AWS DocumentDB with TLS
@@ -147,7 +159,7 @@ cargo run -- --help
 
 ```sh
 docker build -t hindsight .
-docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight --help
+docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e MONGO_URL=mongodb://host.docker.internal:27017 hindsight --help
 ```
 
 > :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
@@ -158,7 +170,7 @@ All the tests are integration tests, so you'll have to have your environment (DB
 
 ```sh
 export RPC_URL_WS=ws://127.0.0.1:8545
-export DB_URL=mongodb://localhost:27017
+export MONGO_URL=mongodb://localhost:27017
 cargo test
 ```
 
@@ -205,7 +217,7 @@ In the directory where you want to put the files (we make an `arbData` directory
 
 ```sh
 mkdir -p arbData
-docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
+docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:8545 -e MONGO_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
 ```
 
 ## common errors
