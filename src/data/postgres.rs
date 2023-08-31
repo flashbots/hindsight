@@ -12,7 +12,8 @@ use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
 // use postgres_openssl::;
 
-const ARBS_TABLE: &'static str = "mev_lower_bound";
+// TODO: add env var
+const ARBS_TABLE: &'static str = "hindsight";
 
 pub struct PostgresConnect {
     client: Arc<Client>,
@@ -34,7 +35,7 @@ impl Default for PostgresConfig {
 
 impl PostgresConnect {
     pub async fn new(config: PostgresConfig) -> Result<Self> {
-        // TODO: add env var
+        // TODO: add env var for postgres tls if/when implemented
         // let pg_tls = false;
         // let tls = if pg_tls {
         //     OpenSsl...
@@ -56,7 +57,7 @@ impl PostgresConnect {
                 &format!(
                     "CREATE TABLE IF NOT EXISTS {} (
                         tx_hash VARCHAR(66) NOT NULL PRIMARY KEY,
-                        profit NUMERIC NOT NULL
+                        profit__eth__ NUMERIC NOT NULL
                     )",
                     ARBS_TABLE
                 ),
@@ -88,7 +89,7 @@ impl ArbInterface for PostgresConnect {
             tokio::task::spawn(async move {
                 client
                 .execute(
-                    &format!("INSERT INTO {} (tx_hash, profit) VALUES ($1, $2) ON CONFLICT (tx_hash) DO UPDATE SET profit = $2", ARBS_TABLE),
+                    &format!("INSERT INTO {} (tx_hash, profit__eth__) VALUES ($1, $2) ON CONFLICT (tx_hash) DO UPDATE SET profit__eth__ = $2", ARBS_TABLE),
                     &[&txhash, &profit],
                 )
                 .await.expect("failed to write arb to postgres");
@@ -99,11 +100,11 @@ impl ArbInterface for PostgresConnect {
     }
 
     async fn read_arbs(&self, _filter_params: ArbFilterParams) -> Result<Vec<SimArbResultBatch>> {
-        err!("unimplemented")
+        todo!()
     }
 
     async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
-        err!("unimplemented")
+        todo!()
     }
 
     async fn export_arbs(
@@ -111,7 +112,7 @@ impl ArbInterface for PostgresConnect {
         _write_dest: WriteEngine,
         _filter_params: ArbFilterParams,
     ) -> Result<()> {
-        err!("unimplemented")
+        todo!()
     }
 }
 
