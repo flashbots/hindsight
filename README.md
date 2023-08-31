@@ -31,7 +31,6 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
 ### requirements
 
-- [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
   - [Erigon](https://github.com/ledgerwatch/erigon) and [Reth](https://github.com/paradigmxyz/reth) are good self-hosted options.
   - [Infura](https://www.infura.io/solutions/archive-access) and [QuickNode](https://www.quicknode.com/core-api) offer hosted solutions (make sure you get an "archive node" plan if prompted for it).
@@ -40,7 +39,53 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
 ### To build and run locally
 
+_Either/Or:_
+
 - [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
+- [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
+
+### populate environment variables
+
+If you want to set your environment variables in a file, copy the template file `.env.example` to `.env` and update as needed.
+
+```sh
+cp .env.example .env
+# modify in your preferred editor
+vim .env
+```
+
+The values present in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
+
+With the DB and Ethereum RPC accessible on the host machine:
+
+*Docker .env config:*
+
+```txt
+RPC_URL_WS=ws://host.docker.internal:8545
+MONGO_URL=mongodb://root:example@host.docker.internal:27017
+```
+
+Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
+
+```txt
+RPC_URL_WS=ws://172.17.0.1:8545
+MONGO_URL=mongodb://root:example@172.17.0.1:27017
+```
+
+#### .env vs environment variables
+
+`.env` is optional. If you prefer, you can set environment variables directly in your shell:
+
+```sh
+export RPC_URL_WS=ws://127.0.0.1:8545
+export MONGO_URL=mongodb://root:example@localhost:27017
+cargo run -- scan
+
+# alternatively, to pass the variables directly to hindsight rather than setting them in the shell
+RPC_URL_WS=ws://127.0.0.1:8545 \
+MONGO_URL=mongodb://root:example@localhost:27017 \
+cargo run -- scan
+```
 
 #### system dependencies
 
@@ -55,7 +100,7 @@ sudo apt install build-essential libssl-dev pkg-config
 git submodule update --init
 ```
 
-### connecting to DBs with TLS
+### connecting to AWS DocumentDB with TLS
 
 Get the CA file:
 
@@ -63,13 +108,19 @@ Get the CA file:
 ./get-ca.sh
 ```
 
-Enable TLS for the db in `.env`:
+Enable TLS for the db by modifying your `.env` file:
+
+- uncomment and set `TLS_CA_FILE_MONGO`
+- add `?tls=true` to your existing `MONGO_URL`
+
+`.env`
 
 ```txt
-TLS_ENABLED_MONGO=true
+TLS_CA_FILE_MONGO=global-bundle.pem
+MONGO_URL=mongodb://root:example@localhost:27017/?tls=true
 ```
 
-### spin up DB
+### run DB locally w/ docker
 
 ```sh
 docker compose up -d
@@ -109,49 +160,6 @@ All the tests are integration tests, so you'll have to have your environment (DB
 export RPC_URL_WS=ws://127.0.0.1:8545
 export DB_URL=mongodb://localhost:27017
 cargo test
-```
-
-### populate environment variables
-
-If you want to set your environment variables in a file, copy the template file `.env.example` to `.env` and update as needed.
-
-```sh
-cp .env.example .env
-# modify in your preferred editor
-vim .env
-```
-
-The values present in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
-
-With the DB and Ethereum RPC accessible on the host machine:
-
-*Docker .env config:*
-
-```txt
-RPC_URL_WS=ws://host.docker.internal:8545
-DB_URL=mongodb://host.docker.internal:27017
-```
-
-Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
-
-```txt
-RPC_URL_WS=ws://172.17.0.1:8545
-DB_URL=mongodb://172.17.0.1:27017
-```
-
-#### .env vs environment variables
-
-`.env` is optional. If you prefer, you can set environment variables directly in your shell:
-
-```sh
-export RPC_URL_WS=ws://127.0.0.1:8545
-export DB_URL=mongodb://localhost:27017
-cargo run -- scan
-
-# alternatively, to pass the variables directly to hindsight rather than setting them in the shell
-RPC_URL_WS=ws://127.0.0.1:8545 \
-DB_URL=mongodb://localhost:27017 \
-cargo run -- scan
 ```
 
 ## `scan`
