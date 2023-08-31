@@ -2,4 +2,4 @@
 target
 *.json
 arbData
-global-bundle.pem
+*.pem
