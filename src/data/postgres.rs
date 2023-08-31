@@ -1,6 +1,5 @@
 use super::arbs::{ArbFilterParams, ArbInterface, WriteEngine};
 use crate::{
-    err,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
@@ -12,7 +11,6 @@ use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
 // use postgres_openssl::;
 
-// TODO: add env var
 const ARBS_TABLE: &'static str = "hindsight";
 
 pub struct PostgresConnect {
@@ -69,12 +67,6 @@ impl PostgresConnect {
             client: Arc::new(client),
         })
     }
-
-    // TODO: DELETE THIS; ONLY USED FOR TESTING
-    // pub async fn drop_arbs(&self) -> Result<()> {
-    //     self.client.execute("DROP TABLE arbs", &[]).await?;
-    //     Ok(())
-    // }
 }
 
 #[async_trait]
