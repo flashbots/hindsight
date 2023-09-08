@@ -77,9 +77,6 @@ pub async fn export_arbs_core(
     println!("total arbs: {}", total_arbs);
     let mut offset = 0;
 
-    let arb_queue: Arc<tokio::sync::Mutex<Vec<SimArbResultBatch>>> =
-        Arc::new(tokio::sync::Mutex::new(vec![]));
-
     // read NUM_ARBS_PER_READ arbs at a time
     while offset < total_arbs {
         let arbs = src
