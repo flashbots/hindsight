@@ -29,12 +29,7 @@ pub fn save_arbs_to_file(filename: Option<String>, arbs: Vec<SimArbResultBatch>)
     let filename = format!("{}/{}", EXPORT_DIR, filename);
     if arbs.len() > 0 {
         info!("exporting {} arbs to file {}...", arbs.len(), filename);
-        let file = if let Ok(file) = File::open(filename.to_owned()) {
-            info!("file {} already exists, appending...", filename);
-            file
-        } else {
-            File::create(filename.to_owned())?
-        };
+        let file = File::options().append(true).open(filename.to_owned())?;
         let mut writer = BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, &arbs)?;
         writer.flush()?;
