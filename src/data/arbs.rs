@@ -80,35 +80,6 @@ pub async fn export_arbs_core(
     let arb_queue: Arc<tokio::sync::Mutex<Vec<SimArbResultBatch>>> =
         Arc::new(tokio::sync::Mutex::new(vec![]));
 
-    tokio::spawn(async move {
-        loop {
-            // get fixed amount on first lock
-            let arbs = arb_queue.lock().await;
-            // drain that many from queue on next lock
-            let arbs = arb_queue
-                .lock()
-                .await
-                .drain(0..arbs.len())
-                .collect::<Vec<_>>();
-            match write_dest.clone() {
-                WriteEngine::File(filename) => {
-                    save_arbs_to_file(filename, arbs.to_vec())
-                        .expect("failed to save arbs to file");
-                }
-                WriteEngine::Db(engine) => {
-                    let db = Db::new(engine).await;
-                    db.connect
-                        .write_arbs(&arbs)
-                        .await
-                        .expect("failed to write arbs to db");
-                }
-            }
-            if offset >= total_arbs {
-                break;
-            }
-        }
-    });
-
     // read NUM_ARBS_PER_READ arbs at a time
     while offset < total_arbs {
         let arbs = src
@@ -138,6 +109,25 @@ pub async fn export_arbs_core(
             "time range: {} days",
             (end_timestamp - start_timestamp) as f64 / 86400_f64
         );
+        let write_dest = write_dest.clone();
+        let db_handle = tokio::spawn(async move {
+            match write_dest {
+                WriteEngine::File(filename) => {
+                    println!("saving arbs to file...");
+                    save_arbs_to_file(filename, arbs.to_vec())
+                        .expect("failed to save arbs to file");
+                }
+                WriteEngine::Db(engine) => {
+                    let db = Db::new(engine).await;
+                    db.connect
+                        .write_arbs(&arbs)
+                        .await
+                        .expect("failed to write arbs to db");
+                }
+            }
+        });
+        db_handle.await?;
+        // tokio::join!(db_handle);
     }
 
     Ok(())
