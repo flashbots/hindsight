@@ -11,6 +11,8 @@ use ethers::{types::U256, utils::format_ether};
 
 use super::db::DbEngine;
 
+const NUM_ARBS_PER_READ: i64 = 1000;
+
 #[derive(Clone, Debug)]
 pub struct ArbFilterParams {
     pub block_start: Option<u64>,
@@ -39,6 +41,7 @@ impl ArbFilterParams {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum WriteEngine {
     File(Option<String>),
     Db(DbEngine),
@@ -47,55 +50,94 @@ pub enum WriteEngine {
 #[async_trait]
 pub trait ArbInterface: Sync + Send {
     async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()>;
-    async fn read_arbs(&self, filter_params: ArbFilterParams) -> Result<Vec<SimArbResultBatch>>;
+    async fn read_arbs(
+        &self,
+        filter_params: &ArbFilterParams,
+        offset: Option<u64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<SimArbResultBatch>>;
+    async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64>;
     async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges>;
     async fn export_arbs(
         &self,
         write_dest: WriteEngine,
-        filter_params: ArbFilterParams,
+        filter_params: &ArbFilterParams,
     ) -> Result<()>;
 }
 
-/// Saves arbs in JSON format to given filename. `.json` is appended to the filename if the filename doesn't have it already.
-///
-/// Save all files in `./arbData/`
+/// Saves arbs to given write engine (file or db).
 pub async fn export_arbs_core(
     src: &dyn ArbInterface,
-    // arbs: &Vec<SimArbResultBatch>,
     write_dest: WriteEngine,
-    filter_params: ArbFilterParams,
+    filter_params: &ArbFilterParams,
 ) -> Result<()> {
-    let arbs = src.read_arbs(filter_params).await?;
-    let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
-    let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
-    let start_timestamp = arbs
-        .iter()
-        .map(|arb| arb.event.timestamp)
-        .min()
-        .unwrap_or(0);
-    let end_timestamp = arbs
-        .iter()
-        .map(|arb| arb.event.timestamp)
-        .max()
-        .unwrap_or(0);
-    let sum_profit = arbs
-        .iter()
-        .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
-    info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
-    info!("(start,end) block: ({}, {})", start_block, end_block);
-    info!(
-        "time range: {} days",
-        (end_timestamp - start_timestamp) as f64 / 86400_f64
-    );
+    // determine total number of arbs now to prevent running forever
+    // ...
+    let total_arbs = src.get_num_arbs(filter_params).await?;
+    println!("total arbs: {}", total_arbs);
+    let mut offset = 0;
 
-    match write_dest {
-        WriteEngine::File(filename) => {
-            save_arbs_to_file(filename, arbs.to_vec())?;
+    let arb_queue: Arc<tokio::sync::Mutex<Vec<SimArbResultBatch>>> =
+        Arc::new(tokio::sync::Mutex::new(vec![]));
+
+    tokio::spawn(async move {
+        loop {
+            // get fixed amount on first lock
+            let arbs = arb_queue.lock().await;
+            // drain that many from queue on next lock
+            let arbs = arb_queue
+                .lock()
+                .await
+                .drain(0..arbs.len())
+                .collect::<Vec<_>>();
+            match write_dest.clone() {
+                WriteEngine::File(filename) => {
+                    save_arbs_to_file(filename, arbs.to_vec())
+                        .expect("failed to save arbs to file");
+                }
+                WriteEngine::Db(engine) => {
+                    let db = Db::new(engine).await;
+                    db.connect
+                        .write_arbs(&arbs)
+                        .await
+                        .expect("failed to write arbs to db");
+                }
+            }
+            if offset >= total_arbs {
+                break;
+            }
         }
-        WriteEngine::Db(engine) => {
-            let db = Db::new(engine).await;
-            db.connect.write_arbs(&arbs).await?;
-        }
+    });
+
+    // read NUM_ARBS_PER_READ arbs at a time
+    while offset < total_arbs {
+        let arbs = src
+            .read_arbs(filter_params, Some(offset), Some(NUM_ARBS_PER_READ))
+            .await?;
+        offset += arbs.len() as u64;
+
+        // do the following for every batch until we're out of arbs in the source db
+        let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+        let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
+        let start_timestamp = arbs
+            .iter()
+            .map(|arb| arb.event.timestamp)
+            .min()
+            .unwrap_or(0);
+        let end_timestamp = arbs
+            .iter()
+            .map(|arb| arb.event.timestamp)
+            .max()
+            .unwrap_or(0);
+        let sum_profit = arbs
+            .iter()
+            .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
+        info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
+        info!("(start,end) block: ({}, {})", start_block, end_block);
+        info!(
+            "time range: {} days",
+            (end_timestamp - start_timestamp) as f64 / 86400_f64
+        );
     }
 
     Ok(())

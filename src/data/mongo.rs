@@ -1,10 +1,10 @@
+use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
 use crate::interfaces::SimArbResultBatch;
 use crate::interfaces::StoredArbsRanges;
 use crate::Result;
-
-use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
+use mongodb::bson::Document;
 use mongodb::options::Tls;
 use mongodb::options::TlsOptions;
 use mongodb::{bson::doc, options::FindOptions, Collection};
@@ -37,12 +37,58 @@ impl Default for MongoConfig {
     }
 }
 
+impl Into<Document> for ArbFilterParams {
+    fn into(self) -> Document {
+        let block_start = self.block_start.unwrap_or(1);
+        let block_end = self.block_end.unwrap_or(f64::MAX as u64);
+        let timestamp_start = self.timestamp_start.unwrap_or(1);
+        let timestamp_end = self.timestamp_end.unwrap_or(f64::MAX as u64);
+        let min_profit = self.min_profit.unwrap_or(0.into());
+        let max_profit = if min_profit > 0.into() {
+            doc! {
+                "$ne": "0x0",
+            }
+        } else {
+            //noop
+            doc! {
+                "$exists": true
+            }
+        };
+
+        doc! {
+                "event.block": {
+                    "$gte": block_start as f64,
+                    "$lte": block_end as f64,
+                },
+                "event.timestamp": {
+                    "$gte": timestamp_start as f64,
+                    "$lte": timestamp_end as f64,
+                },
+                "maxProfit": max_profit,
+        }
+    }
+}
+
 /// Talks to the database.
 impl MongoConnect {
     /// Creates a new ArbDb instance, which connects to the arb collection.
     pub async fn new(config: MongoConfig) -> Result<Self> {
         let db = MongoConnect::init_db(config).await?;
         let arb_collection = Arc::new(db.collection::<SimArbResultBatch>(ARB_COLLECTION));
+        // create index if dne
+        // let index_names = vec!["event.block", "event.timestamp", "max_profit"];
+        // let names = arb_collection.list_index_names_with_session().await?;
+        // for name in index_names {
+        // if !names.contains(&name.to_owned()) {
+        // let index = doc! { "event.block": 1, "event.timestamp": 1, "max_profit": -1 };
+        // let options = None;
+        // arb_collection
+        //     .create_index(IndexModel::builder().keys(index).build(), options)
+        //     .await?;
+        // break;
+        // }
+        // }
+        // self.arb_collection.create_index(index, options)
         Ok(Self { arb_collection })
     }
 
@@ -63,7 +109,7 @@ impl MongoConnect {
         Ok(db)
     }
 
-    /// Retrieves the first arb in the DB (by lowest timestamp).
+    /// Retrieves the (first, last) arb in the DB (by timestamp).
     async fn get_arb_extrema(
         &self,
     ) -> Result<(Option<SimArbResultBatch>, Option<SimArbResultBatch>)> {
@@ -91,28 +137,44 @@ impl ArbInterface for MongoConnect {
         Ok(())
     }
 
+    async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64> {
+        let filter: Document = filter_params.to_owned().into();
+        Ok(self
+            .arb_collection
+            .count_documents(Some(filter), None)
+            .await?)
+    }
+
     /// Load all arbs from the DB.
-    async fn read_arbs(&self, filter_params: ArbFilterParams) -> Result<Vec<SimArbResultBatch>> {
-        // TODO: add filter params to query instead of filtering post-query
-        let mut cursor = self.arb_collection.find(None, None).await?;
+    async fn read_arbs(
+        &self,
+        filter_params: &ArbFilterParams,
+        offset: Option<u64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<SimArbResultBatch>> {
+        // small optimization: match non-zero profit if min_profit is set and > 0
+        let mut cursor = self
+            .arb_collection
+            .find(
+                Some(filter_params.to_owned().into()),
+                Some(
+                    FindOptions::builder()
+                        .sort(doc! { "event.timestamp": 1 })
+                        .skip(offset)
+                        .limit(limit)
+                        .build(),
+                ),
+            )
+            .await?;
+
         let mut results = vec![];
         while let Some(res) = cursor.try_next().await? {
             results.push(res);
         }
-        let min_block = filter_params.block_start.unwrap_or(1);
-        let max_block = filter_params.block_end.unwrap_or(u64::MAX);
-        let min_timestamp = filter_params.timestamp_start.unwrap_or(1);
-        let max_timestamp = filter_params.timestamp_end.unwrap_or(u64::MAX);
-        let min_profit = filter_params.min_profit.unwrap_or(0.into());
+        // gotta filter in memory bc mongo doesn't support bigint comparisons
         let results = results
             .into_iter()
-            .filter(|arb| {
-                arb.max_profit >= min_profit
-                    && arb.event.block >= min_block
-                    && arb.event.block <= max_block
-                    && arb.event.timestamp >= min_timestamp
-                    && arb.event.timestamp <= max_timestamp
-            })
+            .filter(|arb| arb.max_profit >= filter_params.min_profit.unwrap_or(0.into()))
             .collect::<Vec<_>>();
         Ok(results)
     }
@@ -126,7 +188,7 @@ impl ArbInterface for MongoConnect {
         let (earliest_block, earliest_timestamp) = if let Some(arb) = arb_start {
             (arb.event.block, arb.event.timestamp)
         } else {
-            (1, 1)
+            (1, 1) // TODO: replace tuples w/ option pattern, this is a hack
         };
         let (latest_block, latest_timestamp) = if let Some(arb) = arb_end {
             (arb.event.block, arb.event.timestamp)
@@ -144,7 +206,7 @@ impl ArbInterface for MongoConnect {
     async fn export_arbs(
         &self,
         write_dest: WriteEngine,
-        filter_params: ArbFilterParams,
+        filter_params: &ArbFilterParams,
     ) -> Result<()> {
         // TODO: find a more idiomatic way of implementing this for every ArbInterface impl
         export_arbs_core(self, write_dest, filter_params).await?;
@@ -166,7 +228,7 @@ mod test {
         (0..quantity).for_each(|i| {
             let mut arb = SimArbResultBatch::test_example();
             arb.event.block = 1 + i;
-            arb.event.timestamp = 0x77777777 + i;
+            arb.event.timestamp = 0x6464beef + (i * 12);
             arbs.push(arb);
         });
         connect.write_arbs(&arbs).await?;
@@ -194,8 +256,40 @@ mod test {
     #[tokio::test]
     async fn it_reads_from_db() -> Result<()> {
         let connect = connect().await?;
-        let arbs = connect.read_arbs(ArbFilterParams::default()).await?;
+        let arbs = connect
+            .read_arbs(&ArbFilterParams::default(), None, None)
+            .await?;
         println!("arbs: {:?}", arbs);
+        Ok(())
+    }
+
+    // assert read_arbs filters arbs by min_block_number
+    #[tokio::test]
+    async fn it_filters_arbs() -> Result<()> {
+        let connect = connect().await?;
+        inject_test_arbs(&connect, 10).await?;
+        let block_first = connect.get_arb_extrema().await?.0.unwrap().event.block;
+        let arbs = connect
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: Some(block_first + 5),
+                    block_end: Some(block_first + 9),
+                    timestamp_start: Some(0x6464beef),
+                    timestamp_end: Some(0x6464deaf),
+                    min_profit: Some(1.into()),
+                },
+                Some(1),
+                Some(3),
+            )
+            .await?;
+        println!(
+            "arbs: {:?}",
+            arbs.iter().map(|arb| arb.event.block).collect::<Vec<_>>()
+        );
+        assert!(arbs.len() > 0);
+        assert!(arbs.len() <= 3);
+        assert!(arbs.iter().all(|arb| arb.event.block >= block_first + 5));
+
         Ok(())
     }
 
@@ -217,7 +311,7 @@ mod test {
         connect
             .export_arbs(
                 WriteEngine::File(Some("test_arbs.json".to_owned())),
-                ArbFilterParams::default(),
+                &ArbFilterParams::default(),
             )
             .await?;
         Ok(())

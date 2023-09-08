@@ -91,7 +91,16 @@ impl ArbInterface for PostgresConnect {
         Ok(())
     }
 
-    async fn read_arbs(&self, _filter_params: ArbFilterParams) -> Result<Vec<SimArbResultBatch>> {
+    async fn get_num_arbs(&self, _filter_params: &ArbFilterParams) -> Result<u64> {
+        todo!()
+    }
+
+    async fn read_arbs(
+        &self,
+        _filter_params: &ArbFilterParams,
+        _offset: Option<u64>,
+        _limit: Option<i64>,
+    ) -> Result<Vec<SimArbResultBatch>> {
         todo!()
     }
 
@@ -102,7 +111,7 @@ impl ArbInterface for PostgresConnect {
     async fn export_arbs(
         &self,
         _write_dest: WriteEngine,
-        _filter_params: ArbFilterParams,
+        _filter_params: &ArbFilterParams,
     ) -> Result<()> {
         todo!()
     }

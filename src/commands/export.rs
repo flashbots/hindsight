@@ -8,6 +8,7 @@ pub async fn run(
     write_dest: WriteEngine,
 ) -> Result<()> {
     let db = Db::new(read_db_engine).await.connect;
-    db.export_arbs(write_dest, params).await?;
+    println!("exporting arbs...");
+    db.export_arbs(write_dest, &params).await?;
     Ok(())
 }

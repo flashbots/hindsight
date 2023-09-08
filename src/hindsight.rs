@@ -149,7 +149,10 @@ mod tests {
             .await?;
 
         // check DB for result
-        let arbs = test_db.connect.read_arbs(ArbFilterParams::none()).await?;
+        let arbs = test_db
+            .connect
+            .read_arbs(&ArbFilterParams::none(), None, None)
+            .await?;
         assert!(arbs
             .into_iter()
             .map(|arb| arb.event.hint.hash)
