@@ -154,16 +154,15 @@ pub async fn export_arbs_core<'k>(
                 }
             }
             drop(arb_lock);
-            if batch_arbs.len() == 0 {
-                break;
-            }
-            match write_dest.clone() {
-                WriteEngine::File(filename) => {
-                    save_arbs_to_file(filename, batch_arbs).unwrap();
-                }
-                WriteEngine::Db(db_engine) => {
-                    let db = Db::new(db_engine).await.connect;
-                    db.write_arbs(&batch_arbs).await.unwrap();
+            if batch_arbs.len() > 0 {
+                match write_dest.clone() {
+                    WriteEngine::File(filename) => {
+                        save_arbs_to_file(filename, batch_arbs).unwrap();
+                    }
+                    WriteEngine::Db(db_engine) => {
+                        let db = Db::new(db_engine).await.connect;
+                        db.write_arbs(&batch_arbs).await.unwrap();
+                    }
                 }
             }
         }
