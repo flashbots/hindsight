@@ -22,10 +22,13 @@ fn parse_filename(filename: Option<String>) -> Result<String> {
     })
 }
 
-pub fn save_arbs_to_file(filename: Option<String>, arbs: Vec<SimArbResultBatch>) -> Result<()> {
+pub async fn save_arbs_to_file(
+    filename: Option<String>,
+    arbs: Vec<SimArbResultBatch>,
+) -> Result<()> {
     let filename = parse_filename(filename)?;
     // create ./arbData/ if it doesn't exist
-    std::fs::create_dir_all(EXPORT_DIR)?;
+    tokio::fs::create_dir_all(EXPORT_DIR).await?;
     let filename = format!("{}/{}", EXPORT_DIR, filename);
     if arbs.len() > 0 {
         info!("exporting {} arbs to file {}...", arbs.len(), filename);
