@@ -209,7 +209,8 @@ impl ArbInterface for MongoConnect {
         filter_params: &ArbFilterParams,
     ) -> Result<()> {
         // TODO: find a more idiomatic way of implementing this for every ArbInterface impl
-        export_arbs_core(self, write_dest, filter_params).await?;
+        let src = Arc::new(self.clone());
+        export_arbs_core(src, write_dest, filter_params).await?;
         Ok(())
     }
 }

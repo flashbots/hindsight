@@ -1,4 +1,6 @@
+use futures::future::join_all;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::{
     data::{db::Db, file::save_arbs_to_file},
@@ -8,6 +10,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use ethers::{types::U256, utils::format_ether};
+use queues::{queue, IsQueue, Queue};
 
 use super::db::DbEngine;
 
@@ -66,66 +69,107 @@ pub trait ArbInterface: Sync + Send {
 }
 
 /// Saves arbs to given write engine (file or db).
-pub async fn export_arbs_core(
-    src: &dyn ArbInterface,
+pub async fn export_arbs_core<'k>(
+    src: Arc<dyn ArbInterface>,
     write_dest: WriteEngine,
     filter_params: &ArbFilterParams,
 ) -> Result<()> {
     // determine total number of arbs now to prevent running forever
-    // ...
     let total_arbs = src.get_num_arbs(filter_params).await?;
     println!("total arbs: {}", total_arbs);
     let mut offset = 0;
 
-    // read NUM_ARBS_PER_READ arbs at a time
-    while offset < total_arbs {
-        let arbs = src
-            .read_arbs(filter_params, Some(offset), Some(NUM_ARBS_PER_READ))
-            .await?;
-        offset += arbs.len() as u64;
+    // thread-safe FIFO queue
+    let arb_queue_handle: Arc<Mutex<Queue<SimArbResultBatch>>> = Arc::new(Mutex::new(queue![]));
+    // thread-safe mutex to keep writer thread from quitting before we're done reading
+    let process_done = Arc::new(Mutex::new(()));
 
-        // do the following for every batch until we're out of arbs in the source db
-        let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
-        let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
-        let start_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .min()
-            .unwrap_or(0);
-        let end_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .max()
-            .unwrap_or(0);
-        let sum_profit = arbs
-            .iter()
-            .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
-        info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
-        info!("(start,end) block: ({}, {})", start_block, end_block);
-        info!(
-            "time range: {} days",
-            (end_timestamp - start_timestamp) as f64 / 86400_f64
-        );
-        let write_dest = write_dest.clone();
-        let db_handle = tokio::spawn(async move {
-            match write_dest {
-                WriteEngine::File(filename) => {
-                    println!("saving arbs to file...");
-                    save_arbs_to_file(filename, arbs.to_vec())
-                        .expect("failed to save arbs to file");
-                }
-                WriteEngine::Db(engine) => {
-                    let db = Db::new(engine).await;
-                    db.connect
-                        .write_arbs(&arbs)
-                        .await
-                        .expect("failed to write arbs to db");
+    // arc clones to give to the reader thread
+    let arb_queue = arb_queue_handle.clone();
+    let filter_params = filter_params.clone();
+    let lock = process_done.clone();
+
+    // spawn reader thread
+    let read_handle = tokio::spawn(async move {
+        // lock process_done to keep writer thread from quitting before we're done reading
+        let _process_lock = lock.lock().await;
+        // read NUM_ARBS_PER_READ arbs at a time
+        while offset < total_arbs {
+            let arbs = src
+                .read_arbs(&filter_params, Some(offset), Some(NUM_ARBS_PER_READ))
+                .await
+                .unwrap_or(vec![]);
+            offset += arbs.len() as u64;
+            if arbs.len() == 0 {
+                break;
+            }
+            let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+            let end_block = arbs
+                .iter()
+                .map(|arb| arb.event.block)
+                .max()
+                .unwrap_or(u64::MAX);
+            let start_timestamp = arbs
+                .iter()
+                .map(|arb| arb.event.timestamp)
+                .min()
+                .unwrap_or(0);
+            let end_timestamp = arbs
+                .iter()
+                .map(|arb| arb.event.timestamp)
+                .max()
+                .unwrap_or(u64::MAX);
+            let sum_profit = arbs
+                .iter()
+                .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
+            info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
+            info!("(start,end) block: ({}, {})", start_block, end_block);
+            info!(
+                "time range: {} days",
+                (end_timestamp - start_timestamp) as f64 / 86400_f64
+            );
+
+            let mut arb_lock = arb_queue.lock().await;
+            for arb in arbs {
+                arb_lock.add(arb).unwrap();
+            }
+            // arb_lock is dropped here, unlocking the arb_queue mutex
+        }
+        // _process_lock is dropped here, unlocking the process_done mutex
+    });
+
+    let arb_queue = arb_queue_handle.clone();
+    let write_handle = tokio::spawn(async move {
+        loop {
+            // if process_done is unlocked, reader thread is done
+            if process_done.try_lock().is_ok() {
+                break;
+            }
+            let mut arb_lock = arb_queue.lock().await;
+            let mut batch_arbs = vec![];
+            for _ in 0..arb_lock.size() {
+                let arb = arb_lock.remove().ok();
+                if let Some(arb) = arb {
+                    batch_arbs.push(arb);
                 }
             }
-        });
-        db_handle.await?;
-        // tokio::join!(db_handle);
-    }
+            drop(arb_lock);
+            if batch_arbs.len() == 0 {
+                break;
+            }
+            match write_dest.clone() {
+                WriteEngine::File(filename) => {
+                    save_arbs_to_file(filename, batch_arbs).unwrap();
+                }
+                WriteEngine::Db(db_engine) => {
+                    let db = Db::new(db_engine).await.connect;
+                    db.write_arbs(&batch_arbs).await.unwrap();
+                }
+            }
+        }
+    });
+
+    join_all(vec![read_handle, write_handle]).await;
 
     Ok(())
 }
