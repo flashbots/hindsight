@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     data::{db::Db, file::save_arbs_to_file},
-    info,
+    debug, info,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
@@ -76,7 +76,7 @@ pub async fn export_arbs_core<'k>(
 ) -> Result<()> {
     // determine total number of arbs now to prevent running forever
     let total_arbs = src.get_num_arbs(filter_params).await?;
-    println!("total arbs: {}", total_arbs);
+    debug!("total arbs: {}", total_arbs);
     let mut offset = 0;
 
     // thread-safe FIFO queue
@@ -91,6 +91,7 @@ pub async fn export_arbs_core<'k>(
 
     // spawn reader thread
     let read_handle = tokio::spawn(async move {
+        debug!("starting reader thread...");
         // lock process_done to keep writer thread from quitting before we're done reading
         let _process_lock = lock.lock().await;
         // read NUM_ARBS_PER_READ arbs at a time
@@ -138,11 +139,15 @@ pub async fn export_arbs_core<'k>(
         // _process_lock is dropped here, unlocking the process_done mutex
     });
 
+    // arc clone to give to the writer thread
     let arb_queue = arb_queue_handle.clone();
+    // start writer thread
     let write_handle = tokio::spawn(async move {
+        debug!("starting writer thread...");
         loop {
             // if process_done is unlocked, reader thread is done
             if process_done.try_lock().is_ok() {
+                debug!("reader thread done, writer thread quitting...");
                 break;
             }
             let mut arb_lock = arb_queue.lock().await;
