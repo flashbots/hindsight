@@ -138,12 +138,10 @@ impl ArbInterface for MongoConnect {
     }
 
     async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64> {
-        let rows = self.read_arbs(filter_params, None, None).await?;
-        let min_profit = filter_params.min_profit.unwrap_or(0.into());
-        Ok(rows
-            .into_iter()
-            .map(|arb| if arb.max_profit >= min_profit { 1 } else { 0 })
-            .sum::<u64>())
+        Ok(self
+            .arb_collection
+            .count_documents(Some(filter_params.to_owned().into()), None)
+            .await?)
     }
 
     /// Load all arbs from the DB.
