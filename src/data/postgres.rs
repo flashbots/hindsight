@@ -122,9 +122,9 @@ impl ArbInterface for PostgresConnect {
                     .expect("failed to encode profit");
 
                 println!(
-                    "writing arb to postgres: {} {}",
+                    "writing arb to postgres: {} {} eth",
                     txhash.to_string(),
-                    arb.max_profit
+                    max_profit
                 );
                 // clone these to give to the tokio thread
                 let client = self.client.clone();
@@ -140,8 +140,8 @@ impl ArbInterface for PostgresConnect {
                     &[
                         &txhash,
                         &max_profit,
-                        &(arb.event.block as u32),
-                        &(arb.event.timestamp as u32)
+                        &(arb.event.block as i32),
+                        &(arb.event.timestamp as i32)
                     ],
                 )
                 .await.expect("failed to write arb to postgres");

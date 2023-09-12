@@ -64,7 +64,6 @@ impl Into<Document> for ArbFilterParams {
                     "$gte": timestamp_start as f64,
                     "$lte": timestamp_end as f64,
                 },
-                "maxProfit": max_profit,
         }
     }
 }
@@ -138,11 +137,14 @@ impl ArbInterface for MongoConnect {
     }
 
     async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64> {
-        let filter: Document = filter_params.to_owned().into();
-        Ok(self
-            .arb_collection
-            .count_documents(Some(filter), None)
-            .await?)
+               
+       let rows = self.read_arbs(filter_params, None, None).await?;
+       let min_profit = filter_params.min_profit.unwrap_or(0.into());
+       Ok(rows
+          .into_iter()
+          .map(|arb| if arb.max_profit >= min_profit { 1 } else { 0 })
+          .sum::<u64>()
+        )
     }
 
     /// Load all arbs from the DB.
@@ -159,7 +161,7 @@ impl ArbInterface for MongoConnect {
                 Some(filter_params.to_owned().into()),
                 Some(
                     FindOptions::builder()
-                        .sort(doc! { "event.timestamp": 1 })
+                        //.sort(doc! { "event.timestamp": 1 })
                         .skip(offset)
                         .limit(limit)
                         .build(),

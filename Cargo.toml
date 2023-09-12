@@ -11,13 +11,13 @@ async-recursion = "1.0.4"
 async-trait = "0.1.73"
 clap = {version = "4.3.11", features = ["derive"]}
 colored = "2.0.4"
+deadqueue = "0.2.4"
 dotenvy = "0.15.7"
 ethers = "2.0.7"
 futures = "0.3.28"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
 mongodb = { version = "2.6.0", features = ["tracing", "openssl-tls"] }
 postgres-openssl = "0.5.0"
-queues = "1.1.0"
 rand = "0.8.5"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
 rust_decimal = { version = "1.32.0", features = ["tokio-pg"] }

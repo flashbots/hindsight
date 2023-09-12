@@ -1,6 +1,6 @@
 use futures::future::join_all;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, join};
 
 use crate::{
     data::{db::Db, file::save_arbs_to_file},
@@ -10,8 +10,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use ethers::{types::U256, utils::format_ether};
-use queues::{queue, IsQueue, Queue};
-
+use deadqueue::unlimited::Queue;
 use super::db::DbEngine;
 
 const NUM_ARBS_PER_READ: i64 = 1000;
@@ -69,7 +68,7 @@ pub trait ArbInterface: Sync + Send {
 }
 
 /// Saves arbs to given write engine (file or db).
-pub async fn export_arbs_core<'k>(
+pub async fn export_arbs_core(
     src: Arc<dyn ArbInterface>,
     write_dest: WriteEngine,
     filter_params: &ArbFilterParams,
@@ -77,10 +76,10 @@ pub async fn export_arbs_core<'k>(
     // determine total number of arbs now to prevent running forever
     let total_arbs = src.get_num_arbs(filter_params).await?;
     debug!("total arbs: {}", total_arbs);
-    let mut offset = 0;
+    let offset_lock = Arc::new(Mutex::new(0));
 
-    // thread-safe FIFO queue
-    let arb_queue_handle: Arc<Mutex<Queue<SimArbResultBatch>>> = Arc::new(Mutex::new(queue![]));
+    // thread-safe queue
+    let arb_queue_handle: Arc<Queue<SimArbResultBatch>> = Arc::new(Queue::new());
     // thread-safe mutex to keep writer thread from quitting before we're done reading
     let process_done = Arc::new(Mutex::new(()));
 
@@ -91,16 +90,18 @@ pub async fn export_arbs_core<'k>(
 
     // spawn reader thread
     let read_handle = tokio::spawn(async move {
-        debug!("starting reader thread...");
+        info!("starting reader thread...");
         // lock process_done to keep writer thread from quitting before we're done reading
         let _process_lock = lock.lock().await;
         // read NUM_ARBS_PER_READ arbs at a time
-        while offset < total_arbs {
+        let mut offset = offset_lock.lock().await;
+        while *offset < total_arbs {
             let arbs = src
-                .read_arbs(&filter_params, Some(offset), Some(NUM_ARBS_PER_READ))
+                .read_arbs(&filter_params, Some(*offset), Some(NUM_ARBS_PER_READ))
                 .await
                 .unwrap_or(vec![]);
-            offset += arbs.len() as u64;
+            *offset = *offset + arbs.len() as u64;
+            println!("offset {}", offset);
             if arbs.len() == 0 {
                 break;
             }
@@ -130,9 +131,10 @@ pub async fn export_arbs_core<'k>(
                 (end_timestamp - start_timestamp) as f64 / 86400_f64
             );
 
-            let mut arb_lock = arb_queue.lock().await;
             for arb in arbs {
-                arb_lock.add(arb).unwrap();
+                println!("im arb: {:?}", arb.event.hint.hash);
+                arb_queue.push(arb);
+                println!("arb q: len {}", arb_queue.len());
             }
             // arb_lock is dropped here, unlocking the arb_queue mutex
         }
@@ -143,22 +145,16 @@ pub async fn export_arbs_core<'k>(
     let arb_queue = arb_queue_handle.clone();
     // start writer thread
     let write_handle = tokio::spawn(async move {
-        debug!("starting writer thread...");
-        loop {
-            // if process_done is unlocked, reader thread is done
-            if process_done.try_lock().is_ok() {
-                debug!("reader thread done, writer thread quitting...");
-                break;
-            }
-            let mut arb_lock = arb_queue.lock().await;
+        info!("starting writer thread...");
+        loop { 
+            println!("[w] arb q {}", arb_queue.len());
             let mut batch_arbs = vec![];
-            for _ in 0..arb_lock.size() {
-                let arb = arb_lock.remove().ok();
-                if let Some(arb) = arb {
-                    batch_arbs.push(arb);
-                }
+            for _ in 0..arb_queue.len() {
+                let arb = arb_queue.pop().await;
+                batch_arbs.push(arb);
             }
-            drop(arb_lock);
+
+            info!("finna write {} arbs", batch_arbs.len()); 
             if batch_arbs.len() > 0 {
                 match write_dest.clone() {
                     WriteEngine::File(filename) => {
@@ -175,13 +171,19 @@ pub async fn export_arbs_core<'k>(
                     }
                 }
             } else {
-                debug!("no arbs to write, sleeping...");
+                info!("no arbs to write, sleeping...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            // if process_done is unlocked, reader thread is done
+            if process_done.try_lock().is_ok() && arb_queue.len() == 0 {
+                info!("reader thread done, writer thread quitting...");
+                break;
             }
         }
     });
 
-    join_all(vec![read_handle, write_handle]).await;
+    // join_all(vec![read_handle, write_handle]).await;
+    join!(read_handle, write_handle);
 
     Ok(())
 }
