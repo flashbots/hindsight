@@ -99,7 +99,7 @@ pub async fn export_arbs_core(
             let arbs = src
                 .read_arbs(&filter_params, Some(*offset), Some(NUM_ARBS_PER_READ))
                 .await
-                .unwrap_or(vec![]);
+                .expect("failed to read arbs");
             if arbs.len() == 0 {
                 break;
             }
