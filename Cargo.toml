@@ -9,6 +9,7 @@ version = "0.1.0"
 anyhow = "1.0.71"
 async-recursion = "1.0.4"
 async-trait = "0.1.73"
+chrono = { version = "0.4.30", features = ["serde"] }
 clap = {version = "4.3.11", features = ["derive"]}
 colored = "2.0.4"
 deadqueue = "0.2.4"

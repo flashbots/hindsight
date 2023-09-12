@@ -4,6 +4,7 @@ use crate::{
     Result,
 };
 use async_trait::async_trait;
+use chrono::NaiveDateTime;
 use ethers::{
     types::{H256, U256},
     utils::{format_ether, parse_ether},
@@ -120,6 +121,9 @@ impl ArbInterface for PostgresConnect {
                 let txhash = format!("{:?}", arb.event.hint.hash); // must be a better way than this :\
                 let max_profit = Decimal::from_str(&format_ether(arb.max_profit))
                     .expect("failed to encode profit");
+                let timestamp =
+                    NaiveDateTime::from_timestamp_millis(arb.event.timestamp as i64 * 1000)
+                        .expect("failed to parse timestamp");
 
                 println!(
                     "writing arb to postgres: {} {} eth",
@@ -129,6 +133,7 @@ impl ArbInterface for PostgresConnect {
                 // clone these to give to the tokio thread
                 let client = self.client.clone();
                 let arb = arb.clone();
+
                 tokio::task::spawn(async move {
                     client
                 .execute(
@@ -141,7 +146,7 @@ impl ArbInterface for PostgresConnect {
                         &txhash,
                         &max_profit,
                         &(arb.event.block as i32),
-                        &(arb.event.timestamp as i64)
+                        &timestamp.to_string(),
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
