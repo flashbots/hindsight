@@ -171,8 +171,12 @@ pub async fn export_arbs_core<'k>(
                         db.write_arbs(&batch_arbs)
                             .await
                             .expect("failed to write arbs to db");
+                        info!("wrote {} arbs to db", batch_arbs.len());
                     }
                 }
+            } else {
+                debug!("no arbs to write, sleeping...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         }
     });

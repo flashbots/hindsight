@@ -95,7 +95,7 @@ impl PostgresConnect {
                 &format!(
                     "CREATE TABLE IF NOT EXISTS {} (
                         tx_hash VARCHAR(66) NOT NULL PRIMARY KEY,
-                        profit__eth__ NUMERIC NOT NULL,
+                        profit__eth__ NUMERIC,
                         event_block INTEGER NOT NULL,
                         event_timestamp INTEGER NOT NULL
                     )",
