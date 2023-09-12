@@ -27,7 +27,7 @@ serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
 strum = { version = "0.25.0", features = ["std", "derive", "strum_macros"] }
 tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
-tokio-postgres = { version = "0.7.9", features = ["with-serde_json-1"] }
+tokio-postgres = { version = "0.7.9", features = ["with-serde_json-1", "with-chrono-0_4"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
 uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}

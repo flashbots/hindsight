@@ -146,7 +146,7 @@ impl ArbInterface for PostgresConnect {
                         &txhash,
                         &max_profit,
                         &(arb.event.block as i32),
-                        &timestamp.to_string(),
+                        &timestamp,
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
