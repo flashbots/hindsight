@@ -1,7 +1,8 @@
 use futures::future::join_all;
 use std::sync::Arc;
-use tokio::{sync::Mutex, join};
+use tokio::sync::Mutex;
 
+use super::db::DbEngine;
 use crate::{
     data::{db::Db, file::save_arbs_to_file},
     debug, info,
@@ -9,9 +10,8 @@ use crate::{
     Result,
 };
 use async_trait::async_trait;
-use ethers::{types::U256, utils::format_ether};
 use deadqueue::unlimited::Queue;
-use super::db::DbEngine;
+use ethers::{types::U256, utils::format_ether};
 
 const NUM_ARBS_PER_READ: i64 = 1000;
 
@@ -146,7 +146,7 @@ pub async fn export_arbs_core(
     // start writer thread
     let write_handle = tokio::spawn(async move {
         info!("starting writer thread...");
-        loop { 
+        loop {
             println!("[w] arb q {}", arb_queue.len());
             let mut batch_arbs = vec![];
             for _ in 0..arb_queue.len() {
@@ -154,7 +154,7 @@ pub async fn export_arbs_core(
                 batch_arbs.push(arb);
             }
 
-            info!("finna write {} arbs", batch_arbs.len()); 
+            info!("finna write {} arbs", batch_arbs.len());
             if batch_arbs.len() > 0 {
                 match write_dest.clone() {
                     WriteEngine::File(filename) => {
@@ -182,8 +182,8 @@ pub async fn export_arbs_core(
         }
     });
 
-    // join_all(vec![read_handle, write_handle]).await;
-    join!(read_handle, write_handle);
+    join_all(vec![read_handle, write_handle]).await;
+    // join!(read_handle, write_handle);
 
     Ok(())
 }
