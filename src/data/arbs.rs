@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use deadqueue::unlimited::Queue;
 use ethers::{types::U256, utils::format_ether};
 
-const NUM_ARBS_PER_READ: i64 = 1000;
+const NUM_ARBS_PER_READ: i64 = 3000;
 
 #[derive(Clone, Debug)]
 pub struct ArbFilterParams {
@@ -100,11 +100,11 @@ pub async fn export_arbs_core(
                 .read_arbs(&filter_params, Some(*offset), Some(NUM_ARBS_PER_READ))
                 .await
                 .unwrap_or(vec![]);
-            *offset = *offset + arbs.len() as u64;
-            println!("offset {}", offset);
             if arbs.len() == 0 {
                 break;
             }
+            *offset = *offset + NUM_ARBS_PER_READ as u64;
+            println!("offset {}", offset);
             let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
             let end_block = arbs
                 .iter()
