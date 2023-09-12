@@ -97,7 +97,7 @@ impl PostgresConnect {
                         tx_hash VARCHAR(66) NOT NULL PRIMARY KEY,
                         profit__eth__ NUMERIC,
                         event_block INTEGER NOT NULL,
-                        event_timestamp INTEGER NOT NULL
+                        event_timestamp TIMESTAMP NOT NULL
                     )",
                     ARBS_TABLE
                 ),
@@ -141,7 +141,7 @@ impl ArbInterface for PostgresConnect {
                         &txhash,
                         &max_profit,
                         &(arb.event.block as i32),
-                        &(arb.event.timestamp as i32)
+                        &(arb.event.timestamp as i64)
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
