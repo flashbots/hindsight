@@ -8,7 +8,7 @@ use hindsight::{
         db::DbEngine,
         MongoConfig,
     },
-    debug, info,
+    debug,
 };
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 
@@ -110,12 +110,7 @@ async fn main() -> anyhow::Result<()> {
                 batch_size,
                 db_engine: db_engine.unwrap_or(DbEngine::Mongo(MongoConfig::default())),
             };
-            loop {
-                let res = commands::scan::run(scan_options.to_owned(), config.to_owned()).await;
-                if res.is_err() {
-                    info!("program crashed with error {:?}, restarting...", res);
-                }
-            }
+            commands::scan::run(scan_options.to_owned(), config.to_owned()).await?;
         }
         Some(Commands::Export {
             filename,
