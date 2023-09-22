@@ -7,7 +7,11 @@ use futures::stream::TryStreamExt;
 use mongodb::bson::Document;
 use mongodb::options::Tls;
 use mongodb::options::TlsOptions;
-use mongodb::{bson::doc, options::FindOptions, Collection};
+use mongodb::{
+    bson::doc,
+    options::{FindOneOptions, FindOptions},
+    Collection,
+};
 use mongodb::{options::ClientOptions, Client as DbClient, Database};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -113,19 +117,25 @@ impl MongoConnect {
     async fn get_arb_extrema(
         &self,
     ) -> Result<(Option<SimArbResultBatch>, Option<SimArbResultBatch>)> {
-        // find start
-        let find_options = FindOptions::builder()
-            .sort(doc! { "event.timestamp": 1 })
-            .build();
-        let mut cursor = self.arb_collection.find(None, find_options).await?;
-        let arb_start = cursor.try_next().await?;
-        // find end
-        let find_options = FindOptions::builder()
-            .sort(doc! { "event.timestamp": -1 })
-            .build();
-        let mut cursor = self.arb_collection.find(None, find_options).await?;
-        let arb_end = cursor.try_next().await?;
-        Ok((arb_start, arb_end))
+        let first = self
+            .arb_collection
+            .find_one(
+                None,
+                FindOneOptions::builder()
+                    .sort(doc! { "event.timestamp": 1 })
+                    .build(),
+            )
+            .await?;
+        let last = self
+            .arb_collection
+            .find_one(
+                None,
+                FindOneOptions::builder()
+                    .sort(doc! { "event.timestamp": -1 })
+                    .build(),
+            )
+            .await?;
+        Ok((first, last))
     }
 }
 
