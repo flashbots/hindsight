@@ -1,5 +1,5 @@
 use crate::{
-    data::arbs::ArbDb,
+    data::arbs::ArbDatabase,
     info,
     sim::processor::{simulate_backrun_arbs, H256Map},
     util::{get_ws_client, WsClient},
@@ -27,7 +27,7 @@ impl Hindsight {
         self,
         txs: &Vec<Transaction>,
         batch_size: usize,
-        connect: Option<Box<ArbDb>>,
+        connect: Option<ArbDatabase>,
         event_map: H256Map<EventHistory>,
     ) -> Result<()> {
         info!("loaded {} transactions total...", txs.len());
@@ -74,7 +74,14 @@ mod tests {
     use ethers::{providers::Middleware, types::H256};
     use serde_json::json;
 
-    use crate::{config::Config, data::arbs::ArbFilterParams};
+    use crate::{
+        config::Config,
+        data::{
+            arbs::ArbFilterParams,
+            db::{Db, DbEngine},
+            MongoConfig,
+        },
+    };
 
     use super::*;
 
@@ -129,20 +136,23 @@ mod tests {
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
-        let test_db = Box::new(ArbDb::new(Some("test".to_owned())).await?);
+        let test_db = Db::new(DbEngine::Mongo(MongoConfig::default())).await;
 
         // run the sim, it will save a result to the "test" DB
         hindsight
             .process_orderflow(
                 vec![juicy_tx].as_ref(),
                 1,
-                Some(test_db.to_owned()),
+                Some(test_db.connect.clone()),
                 event_map,
             )
             .await?;
 
         // check DB for result
-        let arbs = test_db.read_arbs(ArbFilterParams::none()).await?;
+        let arbs = test_db
+            .connect
+            .read_arbs(&ArbFilterParams::none(), None, None)
+            .await?;
         assert!(arbs
             .into_iter()
             .map(|arb| arb.event.hint.hash)

@@ -1,47 +1,72 @@
-use crate::config::Config;
+use super::{
+    arbs::ArbDatabase,
+    mongo::{MongoConfig, MongoConnect},
+    postgres::{PostgresConfig, PostgresConnect},
+};
 use crate::Result;
-
-use mongodb::{options::ClientOptions, Client as DbClient, Database};
 use std::sync::Arc;
+use strum::{EnumIter, IntoEnumIterator};
 
-const DB_NAME: &'static str = "hindsight";
-const PROJECT_NAME: &'static str = "simulator";
-
-#[derive(Clone, Debug)]
-pub struct DbConnect {
-    // _client: Arc<DbClient>,
-    pub db: Arc<Database>,
+pub struct Db {
+    pub connect: ArbDatabase,
 }
 
-pub struct DbFactory {
-    name: String,
-    url: String,
+#[derive(Clone, Debug, EnumIter)]
+pub enum DbEngine {
+    Mongo(MongoConfig),
+    Postgres(PostgresConfig),
 }
 
-/// Creates a connected Db instance.
-impl DbFactory {
-    pub async fn init(self) -> Result<DbConnect> {
-        let mut options = ClientOptions::parse(self.url).await?;
-        options.app_name = Some(PROJECT_NAME.to_owned());
-        // options.default_database = Some(DB_NAME.to_owned());
-        options.credential = Some(
-            mongodb::options::Credential::builder()
-                .username("root".to_owned())
-                .password("example".to_owned())
-                .build(),
-        );
-        let db = Arc::new(DbClient::with_options(options)?.database(&self.name));
-        Ok(DbConnect { db })
+impl DbEngine {
+    pub fn enum_flags() -> String {
+        format!(
+            "{}",
+            DbEngine::iter()
+                .map(|engine| engine.to_string())
+                .reduce(|a, b| format!("{} | {}", a, b))
+                .expect("failed to reduce db engines to string")
+        )
     }
 }
 
-/// Talks to the database.
-impl DbConnect {
-    pub fn new(name: Option<String>) -> DbFactory {
-        let url = Config::default().db_url;
-        DbFactory {
-            name: name.unwrap_or(DB_NAME.to_owned()),
-            url,
+impl std::fmt::Display for DbEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbEngine::Mongo(_) => write!(f, "mongo"),
+            DbEngine::Postgres(_) => write!(f, "postgres"),
+        }
+    }
+}
+
+// serialize/deserialize from string
+impl std::str::FromStr for DbEngine {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mongo" => Ok(DbEngine::Mongo(MongoConfig::default())),
+            "postgres" => Ok(DbEngine::Postgres(PostgresConfig::default())),
+            _ => Err(format!("invalid db engine: {}", s)),
+        }
+    }
+}
+
+impl Db {
+    pub async fn new(engine: DbEngine) -> Self {
+        match engine {
+            DbEngine::Mongo(config) => Db {
+                connect: Arc::new(
+                    MongoConnect::new(config.to_owned())
+                        .await
+                        .expect(&format!("failed to connect to mongo db at {}", config.url)),
+                ),
+            },
+            DbEngine::Postgres(config) => {
+                Db {
+                    connect: Arc::new(PostgresConnect::new(config.to_owned()).await.expect(
+                        &format!("failed to connect to postgres db at {:?}", config.url),
+                    )),
+                }
+            }
         }
     }
 }

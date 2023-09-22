@@ -8,18 +8,25 @@ version = "0.1.0"
 [dependencies]
 anyhow = "1.0.71"
 async-recursion = "1.0.4"
+async-trait = "0.1.73"
+chrono = { version = "0.4.30", features = ["serde"] }
 clap = {version = "4.3.11", features = ["derive"]}
 colored = "2.0.4"
+deadqueue = "0.2.4"
 dotenvy = "0.15.7"
 ethers = "2.0.7"
 futures = "0.3.28"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
-mongodb = {version = "2.6.0", features = ["tracing"]}
+mongodb = { version = "2.6.0", features = ["tracing", "openssl-tls"] }
+rand = "0.8.5"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
+rust_decimal = { version = "1.32.0", features = ["tokio-pg"] }
 rusty-sando = {path = "./rusty-sando/bot"}
 serde = "1.0.164"
 serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
+strum = { version = "0.25.0", features = ["std", "derive", "strum_macros"] }
 tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
+tokio-postgres = { version = "0.7.9", features = ["with-serde_json-1", "with-chrono-0_4"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
 uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}

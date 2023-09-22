@@ -1,9 +1,14 @@
-use crate::data::arbs::ArbDb;
-use crate::data::arbs::ArbFilterParams;
+use crate::data::arbs::{ArbFilterParams, WriteEngine};
+use crate::data::db::{Db, DbEngine};
 use crate::Result;
 
-pub async fn run(filename: Option<String>, params: ArbFilterParams) -> Result<()> {
-    let db = ArbDb::new(None).await?;
-    db.export_arbs(filename, params).await?;
+pub async fn run(
+    params: ArbFilterParams,
+    read_db_engine: DbEngine,
+    write_dest: WriteEngine,
+) -> Result<()> {
+    let db = Db::new(read_db_engine).await.connect;
+    println!("exporting arbs...");
+    db.export_arbs(write_dest, &params).await?;
     Ok(())
 }

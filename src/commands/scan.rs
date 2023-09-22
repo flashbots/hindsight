@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::data::arbs::ArbDb;
+use crate::data::db::{Db, DbEngine};
 use crate::event_history::event_history_url;
 use crate::hindsight::Hindsight;
 use crate::info;
@@ -13,14 +13,12 @@ use std::thread::available_parallelism;
 
 #[derive(Clone, Debug)]
 pub struct ScanOptions {
+    pub batch_size: Option<usize>,
     pub block_start: Option<u64>,
     pub block_end: Option<u64>,
     pub timestamp_start: Option<u64>,
     pub timestamp_end: Option<u64>,
-    /// for saving
-    pub filename_txs: Option<String>,
-    pub filename_events: Option<String>,
-    pub batch_size: Option<usize>,
+    pub db_engine: DbEngine,
 }
 
 impl Into<EventHistoryParams> for ScanOptions {
@@ -57,7 +55,8 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
     let ws_client = get_ws_client(None).await?;
     let mevshare = EventClient::default();
     let hindsight = Hindsight::new(config.rpc_url_ws).await?;
-    let db = ArbDb::new(None).await?;
+
+    let db = Db::new(params.db_engine.to_owned()).await;
 
     let mut event_params: EventHistoryParams = params.clone().into();
     let batch_size = params.batch_size.unwrap_or(
@@ -77,20 +76,14 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         value + 1 in the DB if it's higher than the param.
         We add 1 to prevent duplicates. If an arb is saved in the DB,
         then we know we've scanned & simulated up to that point.
-        Timestamp arg takes precedent over block if both are provided.
+        Timestamp is evaluated by default, falls back to block.
     */
-    let db_ranges = db.get_previously_saved_ranges().await?;
+    let db_ranges = db.connect.get_previously_saved_ranges().await?;
     info!("previously saved event ranges: {:?}", db_ranges);
-    if params.timestamp_start.is_some() {
-        event_params.timestamp_start = Some(
-            params
-                .timestamp_start
-                .unwrap()
-                .max(db_ranges.latest_timestamp + 1),
-        );
-    } else if params.block_start.is_some() {
-        event_params.block_start =
-            Some(params.block_start.unwrap().max(db_ranges.latest_block + 1));
+    if let Some(timestamp_start) = params.timestamp_start {
+        event_params.timestamp_start = Some(timestamp_start.max(db_ranges.latest_timestamp + 1));
+    } else if let Some(block_start) = params.block_start {
+        event_params.block_start = Some(block_start.max(db_ranges.latest_block + 1));
     }
 
     info!(
@@ -155,13 +148,10 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         */
         hindsight
             .to_owned()
-            .process_orderflow(&txs, batch_size, Some(Box::new(db.to_owned())), event_map)
+            .process_orderflow(&txs, batch_size, Some(db.connect.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
-
         info!("offset: {:?}", event_params.offset);
-        // info!("limit: {}", event_params.limit.unwrap());
-        // info!("#events: {}", events.len());
     }
 
     Ok(())

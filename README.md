@@ -11,7 +11,7 @@ The simulation core uses [revm](https://github.com/bluealloy/revm) to simulate a
 
 The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and then simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More exchanges may be added to improve odds of profitability.
 
-Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
+Simulated arbitrage attempts are saved in a MongoDB database by default, for dead-simple storage that allows us to change our data format as needed with no overhead. Postgres is also supported, but does not currently save all the same fields that Mongo does.
 
 ## ⚠️ limitations ⚠️
 
@@ -29,20 +29,114 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
 ## setup
 
+Make sure to clone the repo with `--recurse-submodules`. At least for now, we depend on a specific commit of rusty-sando, for its very-useful ForkDB.
+
+```bash
+git clone --recurse-submodules https://github.com/flashbots/hindsight
+```
+
+or if you already cloned without recursing submodules:
+
+```bash
+# in hindsight/
+git submodule update --init
+```
+
+### 🚧 DB implementation incomplete 🚧
+
+The system defaults to using mongo as the database to store arb simulation results. Postgres can be used (add `--help` to any command for details) but currently it only stores `tx_hash`, `event_block`, `event_timestamp`, and `profit`, whereas mongo stores all event and arbitrage trade data. Postgres functionality may be improved later on.
+
 ### requirements
 
-- [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
 - ethereum archive node supporting [`trace_callMany`](https://openethereum.github.io/JSONRPC-trace-module#trace_callmany) API (Reth or Erigon or Infura)
   - [Erigon](https://github.com/ledgerwatch/erigon) and [Reth](https://github.com/paradigmxyz/reth) are good self-hosted options.
   - [Infura](https://www.infura.io/solutions/archive-access) and [QuickNode](https://www.quicknode.com/core-api) offer hosted solutions (make sure you get an "archive node" plan if prompted for it).
 
   > The default environment (specified in [`.env.example`](.env.example)) assumes that you have an Ethereum node accessible on `ws://localhost:8545`.
 
-**To build and run locally:**
+### To build and run locally
+
+_Either/Or:_
 
 - [rust](https://www.rust-lang.org/learn/get-started) (tested with rustc 1.70.0)
+- [docker](https://www.docker.com/get-started/) (tested with v24.0.3)
 
-### spin up DB
+### populate environment variables
+
+If you want to set your environment variables in a file, copy the template file `.env.example` to `.env` and update as needed.
+
+```sh
+cp .env.example .env
+# modify in your preferred editor
+vim .env
+```
+
+The values present in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
+
+With the DB and Ethereum RPC accessible on the host machine:
+
+*Docker .env config:*
+
+```txt
+RPC_URL_WS=ws://host.docker.internal:8545
+MONGO_URL=mongodb://root:example@host.docker.internal:27017
+POSTGRES_URL=postgres://postgres:adminPassword@host.docker.internal:5432
+
+```
+
+Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
+
+```txt
+RPC_URL_WS=ws://172.17.0.1:8545
+MONGO_URL=mongodb://root:example@172.17.0.1:27017
+POSTGRES_URL=postgres://postgres:adminPassword@172.17.0.1:5432
+```
+
+#### .env vs environment variables
+
+`.env` is optional. If you prefer, you can set environment variables directly in your shell:
+
+```sh
+export RPC_URL_WS=ws://127.0.0.1:8545
+export MONGO_URL=mongodb://root:example@localhost:27017
+export POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432
+cargo run -- scan
+
+# alternatively, to pass the variables directly to hindsight rather than setting them in the shell
+RPC_URL_WS=ws://127.0.0.1:8545 \
+MONGO_URL=mongodb://root:example@localhost:27017 \
+POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432 \
+cargo run -- scan
+```
+
+### system dependencies
+
+```sh
+# Debian/Ubuntu
+sudo apt install build-essential libssl-dev pkg-config
+```
+
+### TLS for AWS DocumentDB (optional; only used for cloud DBs)
+
+Get the CA file:
+
+```sh
+./get-ca.sh
+```
+
+Enable TLS for the db by modifying your `.env` file:
+
+- uncomment and set `TLS_CA_FILE_MONGO`
+- add `?tls=true` to your existing `MONGO_URL`
+
+`.env`
+
+```txt
+TLS_CA_FILE_MONGO=global-bundle.pem
+MONGO_URL=mongodb://root:example@localhost:27017/?tls=true
+```
+
+### run DB locally w/ docker
 
 ```sh
 docker compose up -d
@@ -69,7 +163,7 @@ cargo run -- --help
 
 ```sh
 docker build -t hindsight .
-docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight --help
+docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e MONGO_URL=mongodb://host.docker.internal:27017 hindsight --help
 ```
 
 > :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
@@ -80,56 +174,13 @@ All the tests are integration tests, so you'll have to have your environment (DB
 
 ```sh
 export RPC_URL_WS=ws://127.0.0.1:8545
-export DB_URL=mongodb://localhost:27017
+export MONGO_URL=mongodb://localhost:27017
 cargo test
-```
-
-### populate environment variables
-
-If you want to set your environment variables in a file, copy the template file `.env.example` to `.env` and update as needed.
-
-```sh
-cp .env.example .env
-# modify in your preferred editor
-vim .env
-```
-
-The values present in `.env.example` will work if you run hindsight locally, but if you're using docker, you'll have to change the values to reflect the host in the context of the container.
-
-With the DB and Ethereum RPC accessible on the host machine:
-
-*Docker .env config:*
-
-```txt
-RPC_URL_WS=ws://host.docker.internal:8545
-DB_URL=mongodb://host.docker.internal:27017
-```
-
-Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
-
-```txt
-RPC_URL_WS=ws://172.17.0.1:8545
-DB_URL=mongodb://172.17.0.1:27017
-```
-
-#### .env vs environment variables
-
-`.env` is optional. If you prefer, you can set environment variables directly in your shell:
-
-```sh
-export RPC_URL_WS=ws://127.0.0.1:8545
-export DB_URL=mongodb://localhost:27017
-cargo run -- scan
-
-# alternatively, to pass the variables directly to hindsight rather than setting them in the shell
-RPC_URL_WS=ws://127.0.0.1:8545 \
-DB_URL=mongodb://localhost:27017 \
-cargo run -- scan
 ```
 
 ## `scan`
 
-The `scan` command is the heart of Hindsight. It scans events from the MEV-Share Event History API, then fetches the full transactions of those events from the blockchain to use in simulations. The system then forks the blockchain at the block in which each transaction landed, and runs a recursive quadratic search to find the optimal amount of WETH to execute a backrun-arbitrage. The results are then saved to the database in the `arbs` collection ("collection" is MongoDB's term for a table).
+The `scan` command is the heart of Hindsight. It scans events from the MEV-Share Event History API, then fetches the full transactions of those events from the blockchain to use in simulations. The system then forks the blockchain at the block in which each transaction landed, and runs an [arbitrarily](./src/sim/core.rs#L28)-[juiced quadratic search](https://research.ijcaonline.org/volume65/number14/pxc3886165.pdf) to find the optimal amount of WETH to execute a backrun-arbitrage. The results are then saved to the database.
 
 To scan the last week's events for arbs:
 
@@ -151,7 +202,7 @@ To export arbs for events from the last week:
 ```sh
 hindsight export -t $(echo "$(date +%s) - (86400 * 7)" | bc)
 
-# or if you don't have bc
+# or
 hindsight export -t $(echo $(($(date +%s) - ((86400 * 7)))))
 ```
 
@@ -170,7 +221,7 @@ In the directory where you want to put the files (we make an `arbData` directory
 
 ```sh
 mkdir -p arbData
-docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:8545 -e DB_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
+docker run -it -v $(pwd)/arbData:/app/arbData -e RPC_URL_WS=ws://host.docker.internal:8545 -e MONGO_URL=mongodb://host.docker.internal:27017 hindsight export -p 0.0001
 ```
 
 ## common errors
@@ -227,3 +278,16 @@ If that doesn't work, try double-checking your URLs. Refer back to the [environm
 - [rusty-sando](https://github.com/mouseless-eth/rusty-sando)
 - [mev-inspect-rs](https://github.com/flashbots/mev-inspect-rs)
 - [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
+
+## future improvements
+
+See [issues](https://github.com/flashbots/hindsight/issues) for the most up-to-date status, or to propose an improvement!
+
+- [ ] support all the fields in postgres, then make postgres the default
+- [ ] replace [ForkDB dependency](./src/sim/core.rs#L22-L23) (possibly with [Arbiter](https://github.com/primitivefinance/arbiter))
+- [ ] add more protocols (currently only support UniV2, UniV3, and Sushiswap)
+- [ ] maybe: add more complex strategies
+  - multi-hop arbs
+  - multi-tx backruns (using mempool txs)
+  - stat arb
+  - so many more...

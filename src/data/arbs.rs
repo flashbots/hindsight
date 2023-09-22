@@ -1,24 +1,19 @@
+use futures::future::join_all;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use super::db::DbEngine;
 use crate::{
-    data::DbConnect,
-    err, info,
+    data::{db::Db, file::save_arbs_to_file},
+    debug, info,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
+use async_trait::async_trait;
+use deadqueue::unlimited::Queue;
 use ethers::{types::U256, utils::format_ether};
-use futures::stream::TryStreamExt;
-use mongodb::{bson::doc, options::FindOptions, Collection};
-use std::fs::File;
-use std::io::{BufWriter, Write};
 
-const ARB_COLLECTION: &'static str = "arbs";
-const EXPORT_DIR: &'static str = "./arbData";
-
-/// Arbitrage DB. Used for saving/loading results of simulations for long-term data analysis.
-#[derive(Clone, Debug)]
-pub struct ArbDb {
-    _connect: DbConnect,
-    arb_collection: Collection<SimArbResultBatch>,
-}
+const NUM_ARBS_PER_READ: i64 = 3000;
 
 #[derive(Clone, Debug)]
 pub struct ArbFilterParams {
@@ -30,7 +25,6 @@ pub struct ArbFilterParams {
 }
 
 impl Default for ArbFilterParams {
-    /// syntactical sugar for ArbFilterParams::none()
     fn default() -> Self {
         Self::none()
     }
@@ -48,220 +42,148 @@ impl ArbFilterParams {
     }
 }
 
-impl ArbDb {
-    /// Creates a new ArbDb instance, which connects to the arb collection.
-    pub async fn new(name: Option<String>) -> Result<Self> {
-        let connect = DbConnect::new(name).init().await?;
-        let arb_collection = connect.db.collection::<SimArbResultBatch>(ARB_COLLECTION);
-        Ok(Self {
-            _connect: connect,
-            arb_collection,
-        })
-    }
-
-    /// Write given arbs to the DB.
-    pub async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
-        self.arb_collection.insert_many(arbs, None).await?;
-        Ok(())
-    }
-
-    /// Load all arbs from the DB.
-    pub async fn read_arbs(
-        &self,
-        filter_params: ArbFilterParams,
-    ) -> Result<Vec<SimArbResultBatch>> {
-        // TODO: add filter params to query instead of filtering post-query
-        let mut cursor = self.arb_collection.find(None, None).await?;
-        let mut results = vec![];
-        while let Some(res) = cursor.try_next().await? {
-            results.push(res);
-        }
-        let min_block = filter_params.block_start.unwrap_or(1);
-        let max_block = filter_params.block_end.unwrap_or(u64::MAX);
-        let min_timestamp = filter_params.timestamp_start.unwrap_or(1);
-        let max_timestamp = filter_params.timestamp_end.unwrap_or(u64::MAX);
-        let min_profit = filter_params.min_profit.unwrap_or(0.into());
-        let results = results
-            .into_iter()
-            .filter(|arb| {
-                arb.max_profit >= min_profit
-                    && arb.event.block >= min_block
-                    && arb.event.block <= max_block
-                    && arb.event.timestamp >= min_timestamp
-                    && arb.event.timestamp <= max_timestamp
-            })
-            .collect::<Vec<_>>();
-        Ok(results)
-    }
-
-    /// Saves arbs in JSON format to given filename. `.json` is appended to the filename if the filename doesn't have it already.
-    ///
-    /// Save all files in `./arbData/`
-    pub async fn export_arbs(
-        &self,
-        filename: Option<String>,
-        filter_params: ArbFilterParams,
-    ) -> Result<()> {
-        let arbs = self.read_arbs(filter_params).await?;
-        let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
-        let end_block = arbs.iter().map(|arb| arb.event.block).max().unwrap_or(0);
-        let start_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .min()
-            .unwrap_or(0);
-        let end_timestamp = arbs
-            .iter()
-            .map(|arb| arb.event.timestamp)
-            .max()
-            .unwrap_or(0);
-        let sum_profit = arbs
-            .iter()
-            .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
-        info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
-        info!("(start,end) block: ({}, {})", start_block, end_block);
-        info!(
-            "time range: {} days",
-            (end_timestamp - start_timestamp) as f64 / 86400_f64
-        );
-        let filename = filename.unwrap_or(format!(
-            "arbs_{}.json",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs()
-        ));
-        let filename = if filename.ends_with(".json") {
-            filename.to_owned()
-        } else {
-            format!("{}.json", filename)
-        };
-        // create ./arbData/ if it doesn't exist
-        std::fs::create_dir_all(EXPORT_DIR)?;
-        let filename = format!("{}/{}", EXPORT_DIR, filename);
-        if arbs.len() > 0 {
-            info!("exporting {} arbs to file {}...", arbs.len(), filename);
-            let file = File::create(filename)?;
-            let mut writer = BufWriter::new(file);
-            serde_json::to_writer_pretty(&mut writer, &arbs)?;
-            writer.flush()?;
-        } else {
-            info!("no arbs found to export.");
-        }
-        Ok(())
-    }
-
-    /// Retrieves the first arb in the DB (by lowest timestamp).
-    async fn get_arb_extrema(&self) -> Result<(SimArbResultBatch, SimArbResultBatch)> {
-        // find start
-        let find_options = FindOptions::builder()
-            .sort(doc! { "event.timestamp": 1 })
-            .build();
-        let mut cursor = self.arb_collection.find(None, find_options).await?;
-        let arb_start = cursor.try_next().await?;
-        // find end
-        let find_options = FindOptions::builder()
-            .sort(doc! { "event.timestamp": -1 })
-            .build();
-        let mut cursor = self.arb_collection.find(None, find_options).await?;
-        let arb_end = cursor.try_next().await?;
-        if arb_start.is_some() && arb_end.is_some() {
-            return Ok((arb_start.unwrap(), arb_end.unwrap()));
-        }
-        err!(
-            "failed to find arb range in DB. arb_start={:?} arb_end={:?}",
-            arb_start,
-            arb_end
-        )
-    }
-
-    /// Gets the extrema of the blocks and timestamps of the arbs in the DB.
-    ///
-    /// It is assumed that the timestamps and blocks are both monotonically increasing,
-    /// so only timestamps need to be checked; checking block number would be redundant and less precise.
-    pub async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges> {
-        let (arb_start, arb_end) = self.get_arb_extrema().await?;
-        Ok(StoredArbsRanges {
-            earliest_block: arb_start.event.block,
-            latest_block: arb_end.event.block,
-            earliest_timestamp: arb_start.event.timestamp,
-            latest_timestamp: arb_end.event.timestamp,
-        })
-    }
+#[derive(Clone, Debug)]
+pub enum WriteEngine {
+    File(Option<String>),
+    Db(DbEngine),
 }
 
-#[cfg(test)]
-mod test {
-
-    use super::*;
-    use crate::{interfaces::SimArbResultBatch, Result};
-
-    const TEST_DB: &'static str = "test_hindsight";
-
-    async fn inject_test_arbs(connect: &ArbDb, quantity: u64) -> Result<Vec<SimArbResultBatch>> {
-        let mut arbs = vec![];
-        (0..quantity).for_each(|i| {
-            let mut arb = SimArbResultBatch::test_example();
-            arb.event.block = 1 + i;
-            arb.event.timestamp = 0x77777777 + i;
-            arbs.push(arb);
-        });
-        connect.write_arbs(&arbs).await?;
-        Ok(arbs)
-    }
-
-    async fn connect() -> Result<ArbDb> {
-        let connect = ArbDb::new(Some(TEST_DB.to_owned())).await?;
-        Ok(connect)
-    }
-
-    #[tokio::test]
-    async fn it_writes_to_db() -> Result<()> {
-        let connect = connect().await?;
-        let arbs = vec![SimArbResultBatch::test_example()];
-        connect.write_arbs(&arbs).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn it_reads_from_db() -> Result<()> {
-        let connect = connect().await?;
-        let arbs = connect.read_arbs(ArbFilterParams::default()).await?;
-        println!("arbs: {:?}", arbs);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn it_finds_block_ranges_from_db() -> Result<()> {
-        let connect = connect().await?;
-        // insert some test data first
-        inject_test_arbs(&connect, 2).await?;
-        let ranges = connect.get_previously_saved_ranges().await?;
-        assert!(ranges.earliest_timestamp < ranges.latest_timestamp);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn it_exports_arbs() -> Result<()> {
-        // inject some test data first
-        let connect = connect().await?;
-        inject_test_arbs(&connect, 13).await?;
-        connect
-            .export_arbs(
-                Some("test_arbs.json".to_owned()),
-                ArbFilterParams::default(),
-            )
-            .await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn it_gets_arb_extrema() -> Result<()> {
-        let connect = connect().await?;
-        inject_test_arbs(&connect, 13).await?;
-        let arb_range = connect.get_arb_extrema().await?;
-        println!("first arb: {:?}", arb_range.0);
-        println!("last arb: {:?}", arb_range.1);
-        assert!(arb_range.0.event.timestamp < arb_range.1.event.timestamp);
-        Ok(())
-    }
+#[async_trait]
+pub trait ArbDb: Sync + Send {
+    async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()>;
+    async fn read_arbs(
+        &self,
+        filter_params: &ArbFilterParams,
+        offset: Option<u64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<SimArbResultBatch>>;
+    async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64>;
+    async fn get_previously_saved_ranges(&self) -> Result<StoredArbsRanges>;
+    async fn export_arbs(
+        &self,
+        write_dest: WriteEngine,
+        filter_params: &ArbFilterParams,
+    ) -> Result<()>;
 }
+
+/// Saves arbs to given write engine (file or db).
+pub async fn export_arbs_core(
+    src: Arc<dyn ArbDb>,
+    write_dest: WriteEngine,
+    filter_params: &ArbFilterParams,
+) -> Result<()> {
+    // determine total number of arbs now to prevent running forever
+    let total_arbs = src.get_num_arbs(filter_params).await?;
+    debug!("total arbs: {}", total_arbs);
+    let offset_lock = Arc::new(Mutex::new(0));
+
+    // thread-safe queue
+    let arb_queue_handle: Arc<Queue<SimArbResultBatch>> = Arc::new(Queue::new());
+    // thread-safe mutex to keep writer thread from quitting before we're done reading
+    let process_done = Arc::new(Mutex::new(()));
+
+    // arc clones to give to the reader thread
+    let arb_queue = arb_queue_handle.clone();
+    let filter_params = filter_params.clone();
+    let lock = process_done.clone();
+
+    // spawn reader thread
+    let read_handle = tokio::spawn(async move {
+        info!("starting reader thread...");
+        // lock process_done to keep writer thread from quitting before we're done reading
+        let _process_lock = lock.lock().await;
+        // read NUM_ARBS_PER_READ arbs at a time
+        let mut offset = offset_lock.lock().await;
+        while *offset < total_arbs {
+            let arbs = src
+                .read_arbs(&filter_params, Some(*offset), Some(NUM_ARBS_PER_READ))
+                .await
+                .expect("failed to read arbs");
+            if arbs.len() == 0 {
+                break;
+            }
+            *offset = *offset + NUM_ARBS_PER_READ as u64;
+            println!("offset {}", offset);
+            let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+            let end_block = arbs
+                .iter()
+                .map(|arb| arb.event.block)
+                .max()
+                .unwrap_or(u64::MAX);
+            let start_timestamp = arbs
+                .iter()
+                .map(|arb| arb.event.timestamp)
+                .min()
+                .unwrap_or(0);
+            let end_timestamp = arbs
+                .iter()
+                .map(|arb| arb.event.timestamp)
+                .max()
+                .unwrap_or(u64::MAX);
+            let sum_profit = arbs
+                .iter()
+                .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
+            info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
+            info!("(start,end) block: ({}, {})", start_block, end_block);
+            info!(
+                "time range: {} days",
+                (end_timestamp - start_timestamp) as f64 / 86400_f64
+            );
+
+            for arb in arbs {
+                println!("im arb: {:?}", arb.event.hint.hash);
+                arb_queue.push(arb);
+                println!("arb q: len {}", arb_queue.len());
+            }
+            // arb_lock is dropped here, unlocking the arb_queue mutex
+        }
+        // _process_lock is dropped here, unlocking the process_done mutex
+    });
+
+    // arc clone to give to the writer thread
+    let arb_queue = arb_queue_handle.clone();
+    // start writer thread
+    let write_handle = tokio::spawn(async move {
+        info!("starting writer thread...");
+        loop {
+            println!("[w] arb q {}", arb_queue.len());
+            let mut batch_arbs = vec![];
+            for _ in 0..arb_queue.len() {
+                let arb = arb_queue.pop().await;
+                batch_arbs.push(arb);
+            }
+
+            info!("finna write {} arbs", batch_arbs.len());
+            if batch_arbs.len() > 0 {
+                match write_dest.clone() {
+                    WriteEngine::File(filename) => {
+                        save_arbs_to_file(filename, batch_arbs)
+                            .await
+                            .expect("failed to write arbs to file");
+                    }
+                    WriteEngine::Db(db_engine) => {
+                        let db = Db::new(db_engine).await.connect;
+                        db.write_arbs(&batch_arbs)
+                            .await
+                            .expect("failed to write arbs to db");
+                        info!("wrote {} arbs to db", batch_arbs.len());
+                    }
+                }
+            } else {
+                info!("no arbs to write, sleeping...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            // if process_done is unlocked, reader thread is done
+            if process_done.try_lock().is_ok() && arb_queue.len() == 0 {
+                info!("reader thread done, writer thread quitting...");
+                break;
+            }
+        }
+    });
+
+    join_all(vec![read_handle, write_handle]).await;
+
+    Ok(())
+}
+
+pub type ArbDatabase = Arc<dyn ArbDb>;
