@@ -50,7 +50,7 @@ pub enum WriteEngine {
 }
 
 #[async_trait]
-pub trait ArbInterface: Sync + Send {
+pub trait ArbDb: Sync + Send {
     async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()>;
     async fn read_arbs(
         &self,
@@ -69,7 +69,7 @@ pub trait ArbInterface: Sync + Send {
 
 /// Saves arbs to given write engine (file or db).
 pub async fn export_arbs_core(
-    src: Arc<dyn ArbInterface>,
+    src: Arc<dyn ArbDb>,
     write_dest: WriteEngine,
     filter_params: &ArbFilterParams,
 ) -> Result<()> {
@@ -188,4 +188,4 @@ pub async fn export_arbs_core(
     Ok(())
 }
 
-pub type ArbDatabase = Arc<dyn ArbInterface>;
+pub type ArbDatabase = Arc<dyn ArbDb>;

@@ -1,4 +1,4 @@
-use super::arbs::{ArbFilterParams, ArbInterface, WriteEngine};
+use super::arbs::{ArbDb, ArbFilterParams, WriteEngine};
 use crate::{
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
@@ -113,7 +113,7 @@ impl PostgresConnect {
 }
 
 #[async_trait]
-impl ArbInterface for PostgresConnect {
+impl ArbDb for PostgresConnect {
     async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
         let handles = arbs
             .iter()

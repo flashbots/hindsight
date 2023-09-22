@@ -1,4 +1,4 @@
-use super::arbs::{export_arbs_core, ArbFilterParams, ArbInterface, WriteEngine};
+use super::arbs::{export_arbs_core, ArbDb, ArbFilterParams, WriteEngine};
 use crate::interfaces::SimArbResultBatch;
 use crate::interfaces::StoredArbsRanges;
 use crate::Result;
@@ -140,7 +140,7 @@ impl MongoConnect {
 }
 
 #[async_trait]
-impl ArbInterface for MongoConnect {
+impl ArbDb for MongoConnect {
     /// Write given arbs to the DB.
     async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
         self.arb_collection.insert_many(arbs, None).await?;
@@ -217,7 +217,7 @@ impl ArbInterface for MongoConnect {
         write_dest: WriteEngine,
         filter_params: &ArbFilterParams,
     ) -> Result<()> {
-        // TODO: find a more idiomatic way of implementing this for every ArbInterface impl
+        // TODO: find a more idiomatic way of implementing this for every ArbDb impl
         let src = Arc::new(self.clone());
         export_arbs_core(src, write_dest, filter_params).await?;
         Ok(())
@@ -231,7 +231,7 @@ mod test {
     use crate::{config::Config, interfaces::SimArbResultBatch, Result};
 
     async fn inject_test_arbs(
-        connect: &dyn ArbInterface,
+        connect: &dyn ArbDb,
         quantity: u64,
     ) -> Result<Vec<SimArbResultBatch>> {
         let mut arbs = vec![];
