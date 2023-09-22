@@ -53,7 +53,7 @@ impl Into<Document> for ArbFilterParams {
                 "$ne": "0x0",
             }
         } else {
-            //noop
+            // basically a noop, gets any doc
             doc! {
                 "$exists": true
             }
@@ -79,20 +79,7 @@ impl MongoConnect {
     pub async fn new(config: MongoConfig) -> Result<Self> {
         let db = MongoConnect::init_db(config).await?;
         let arb_collection = Arc::new(db.collection::<SimArbResultBatch>(ARB_COLLECTION));
-        // create index if dne
-        // let index_names = vec!["event.block", "event.timestamp", "max_profit"];
-        // let names = arb_collection.list_index_names_with_session().await?;
-        // for name in index_names {
-        // if !names.contains(&name.to_owned()) {
-        // let index = doc! { "event.block": 1, "event.timestamp": 1, "max_profit": -1 };
-        // let options = None;
-        // arb_collection
-        //     .create_index(IndexModel::builder().keys(index).build(), options)
-        //     .await?;
-        // break;
-        // }
-        // }
-        // self.arb_collection.create_index(index, options)
+        // TODO: use indexes
         Ok(Self { arb_collection })
     }
 
@@ -166,13 +153,7 @@ impl ArbDb for MongoConnect {
             .arb_collection
             .find(
                 Some(filter_params.to_owned().into()),
-                Some(
-                    FindOptions::builder()
-                        //.sort(doc! { "event.timestamp": 1 })
-                        .skip(offset)
-                        .limit(limit)
-                        .build(),
-                ),
+                Some(FindOptions::builder().skip(offset).limit(limit).build()),
             )
             .await?;
 
@@ -217,7 +198,6 @@ impl ArbDb for MongoConnect {
         write_dest: WriteEngine,
         filter_params: &ArbFilterParams,
     ) -> Result<()> {
-        // TODO: find a more idiomatic way of implementing this for every ArbDb impl
         let src = Arc::new(self.clone());
         export_arbs_core(src, write_dest, filter_params).await?;
         Ok(())

@@ -14,7 +14,6 @@ use mev_share_sse::{EventHistory, Hint};
 use rust_decimal::prelude::*;
 use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
-// use postgres_openssl; // TODO: support postgres tls
 
 const ARBS_TABLE: &'static str = "hindsight";
 

@@ -18,9 +18,6 @@ pub struct ScanOptions {
     pub block_end: Option<u64>,
     pub timestamp_start: Option<u64>,
     pub timestamp_end: Option<u64>,
-    /// for saving
-    pub filename_txs: Option<String>,
-    pub filename_events: Option<String>,
     pub db_engine: DbEngine,
 }
 
@@ -154,10 +151,7 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
             .process_orderflow(&txs, batch_size, Some(db.connect.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
-
         info!("offset: {:?}", event_params.offset);
-        // info!("limit: {}", event_params.limit.unwrap());
-        // info!("#events: {}", events.len());
     }
 
     Ok(())

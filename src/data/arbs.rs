@@ -25,7 +25,6 @@ pub struct ArbFilterParams {
 }
 
 impl Default for ArbFilterParams {
-    /// syntactical sugar for ArbFilterParams::none()
     fn default() -> Self {
         Self::none()
     }
@@ -183,7 +182,6 @@ pub async fn export_arbs_core(
     });
 
     join_all(vec![read_handle, write_handle]).await;
-    // join!(read_handle, write_handle);
 
     Ok(())
 }

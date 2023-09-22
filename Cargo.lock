@@ -1931,7 +1931,6 @@ dependencies = [
  "futures",
  "mev-share-sse",
  "mongodb",
- "postgres-openssl",
  "rand 0.8.5",
  "revm",
  "rust_decimal",
@@ -3034,19 +3033,6 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
- "tokio-postgres",
-]
-
-[[package]]
-name = "postgres-openssl"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1de0ea6504e07ca78355a6fb88ad0f36cafe9e696cbc6717f16a207f3a60be72"
-dependencies = [
- "futures",
- "openssl",
- "tokio",
- "tokio-openssl",
  "tokio-postgres",
 ]
 

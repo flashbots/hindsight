@@ -1,4 +1,3 @@
-// TODO: TEST, THEN ADD POSTGRES SUPPORT
 use crate::{info, interfaces::SimArbResultBatch, Result};
 use std::{
     fs::File,
