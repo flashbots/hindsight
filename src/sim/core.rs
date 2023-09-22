@@ -409,8 +409,8 @@ pub async fn find_optimal_backrun_amount_in_out(
                                           |
                                         step_arb
                                          / \
-                                        /   ...
-                                    sim_arb_single
+                                        /   ..STEP_INTERVALS
+                                    sim_arb_single()
 
     Simulate an arb for every pool and throw out the ones that
     don't turn a profit.

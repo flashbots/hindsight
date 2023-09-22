@@ -11,7 +11,7 @@ The simulation core uses [revm](https://github.com/bluealloy/revm) to simulate a
 
 The arbitrage strategy implemented here is a relatively simple two-step arb: after simulating the user's trade, we simulate swapping WETH for tokens on the exchange with the best rate (with the user's trade accounted for) and then simulate selling them on whichever other supported exchange gives us the best rate. Currently, Uniswap V2/V3 and SushiSwap are supported. More exchanges may be added to improve odds of profitability.
 
-Simulated arbitrage attempts are saved in a MongoDB database, for dead-simple storage that allows us to change our data format as needed with no overhead.
+Simulated arbitrage attempts are saved in a MongoDB database by default, for dead-simple storage that allows us to change our data format as needed with no overhead. Postgres is also supported, but does not currently save all the same fields that Mongo does.
 
 ## ⚠️ limitations ⚠️
 
@@ -29,9 +29,22 @@ The system (the `scan` command specifically) is set up to retry indefinitely whe
 
 ## setup
 
+Make sure to clone the repo with `--recurse-submodules`. At least for now, we depend on a specific commit of rusty-sando, for its very-useful ForkDB.
+
+```bash
+git clone --recurse-submodules https://github.com/flashbots/hindsight
+```
+
+or if you already cloned without recursing submodules:
+
+```bash
+# in hindsight/
+git submodule update --init
+```
+
 ### 🚧 DB implementation incomplete 🚧
 
-The system defaults to using mongo as the database to store arb simulation results. Postgres can be used (add `--help` to any command for details) but currently it only stores `tx_hash` and `profit`, whereas mongo stores all event and arbitrage trade data. Postgres functionality may be improved later on.
+The system defaults to using mongo as the database to store arb simulation results. Postgres can be used (add `--help` to any command for details) but currently it only stores `tx_hash`, `event_block`, `event_timestamp`, and `profit`, whereas mongo stores all event and arbitrage trade data. Postgres functionality may be improved later on.
 
 ### requirements
 
@@ -67,6 +80,8 @@ With the DB and Ethereum RPC accessible on the host machine:
 ```txt
 RPC_URL_WS=ws://host.docker.internal:8545
 MONGO_URL=mongodb://root:example@host.docker.internal:27017
+POSTGRES_URL=postgres://postgres:adminPassword@host.docker.internal:5432
+
 ```
 
 Some docker installations on linux don't support `host.docker.internal`; you may try this instead:
@@ -74,6 +89,7 @@ Some docker installations on linux don't support `host.docker.internal`; you may
 ```txt
 RPC_URL_WS=ws://172.17.0.1:8545
 MONGO_URL=mongodb://root:example@172.17.0.1:27017
+POSTGRES_URL=postgres://postgres:adminPassword@172.17.0.1:5432
 ```
 
 #### .env vs environment variables
@@ -83,11 +99,13 @@ MONGO_URL=mongodb://root:example@172.17.0.1:27017
 ```sh
 export RPC_URL_WS=ws://127.0.0.1:8545
 export MONGO_URL=mongodb://root:example@localhost:27017
+export POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432
 cargo run -- scan
 
 # alternatively, to pass the variables directly to hindsight rather than setting them in the shell
 RPC_URL_WS=ws://127.0.0.1:8545 \
 MONGO_URL=mongodb://root:example@localhost:27017 \
+POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432 \
 cargo run -- scan
 ```
 
@@ -98,21 +116,7 @@ cargo run -- scan
 sudo apt install build-essential libssl-dev pkg-config
 ```
 
-### get submodules
-
-You need to git the rusty-sando submodule at the specific commit specified in `.gitmodules`. Run this to sync the submodule:
-
-```sh
-git submodule update --init
-```
-
-Alternatively, you could clone the repo with the `--recurse-submodules` flag:
-
-```sh
-git clone --recurse-submodules https://github.com/zeroXbrock/hindsight
-```
-
-### connecting to AWS DocumentDB with TLS
+### TLS for AWS DocumentDB (optional; only used for cloud DBs)
 
 Get the CA file:
 
@@ -176,7 +180,7 @@ cargo test
 
 ## `scan`
 
-The `scan` command is the heart of Hindsight. It scans events from the MEV-Share Event History API, then fetches the full transactions of those events from the blockchain to use in simulations. The system then forks the blockchain at the block in which each transaction landed, and runs a recursive quadratic search to find the optimal amount of WETH to execute a backrun-arbitrage. The results are then saved to the database in the `arbs` collection ("collection" is MongoDB's term for a table).
+The `scan` command is the heart of Hindsight. It scans events from the MEV-Share Event History API, then fetches the full transactions of those events from the blockchain to use in simulations. The system then forks the blockchain at the block in which each transaction landed, and runs an [arbitrarily](./src/sim/core.rs#L28)-[juiced quadratic search](https://research.ijcaonline.org/volume65/number14/pxc3886165.pdf) to find the optimal amount of WETH to execute a backrun-arbitrage. The results are then saved to the database.
 
 To scan the last week's events for arbs:
 
@@ -198,7 +202,7 @@ To export arbs for events from the last week:
 ```sh
 hindsight export -t $(echo "$(date +%s) - (86400 * 7)" | bc)
 
-# or if you don't have bc
+# or
 hindsight export -t $(echo $(($(date +%s) - ((86400 * 7)))))
 ```
 
@@ -274,3 +278,16 @@ If that doesn't work, try double-checking your URLs. Refer back to the [environm
 - [rusty-sando](https://github.com/mouseless-eth/rusty-sando)
 - [mev-inspect-rs](https://github.com/flashbots/mev-inspect-rs)
 - [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
+
+## future improvements
+
+See [issues](https://github.com/flashbots/hindsight/issues) for the most up-to-date status, or to propose an improvement!
+
+- [ ] support all the fields in postgres, then make postgres the default
+- [ ] replace [ForkDB dependency](./src/sim/core.rs#L22-L23) (possibly with [Arbiter](https://github.com/primitivefinance/arbiter))
+- [ ] add more protocols (currently only support UniV2, UniV3, and Sushiswap)
+- [ ] maybe: add more complex strategies
+  - multi-hop arbs
+  - multi-tx backruns (using mempool txs)
+  - stat arb
+  - so many more...
