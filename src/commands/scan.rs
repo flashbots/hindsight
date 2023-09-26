@@ -51,7 +51,7 @@ pub async fn run(
     ws_client: &WsClient,
     mevshare: &EventClient,
     hindsight: &Hindsight,
-    db: &ArbDatabase,
+    write_db: &ArbDatabase,
 ) -> Result<()> {
     info!(
         "scanning events starting at block={:?} timestamp={:?}",
@@ -120,7 +120,7 @@ pub async fn run(
         */
         hindsight
             .to_owned()
-            .process_orderflow(&txs, params.batch_size, Some(db.clone()), event_map)
+            .process_orderflow(&txs, params.batch_size, Some(write_db.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
         info!("offset: {:?}", event_params.offset);

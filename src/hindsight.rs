@@ -9,6 +9,7 @@ use ethers::types::Transaction;
 use futures::future;
 use mev_share_sse::EventHistory;
 
+/// Transaction processor for hindsight. Requires a websocket connection to an archive node.
 #[derive(Clone, Debug)]
 pub struct Hindsight {
     pub client: WsClient,
@@ -19,15 +20,16 @@ impl Hindsight {
         let client = get_ws_client(Some(rpc_url_ws)).await?;
         Ok(Self { client })
     }
-    /// Process all transactions in `txs` taking `batch_size` at a time to run
-    /// in parallel.
+
+    /// For each tx in `txs`, simulates an optimal backrun-arbitrage in a parallel thread,
+    /// caching results in batches of size `batch_size`.
     ///
-    /// Saves results into DB after each batch.
+    /// Saves results into `db` after each batch is processed. Returns when all txs are processed.
     pub async fn process_orderflow(
         self,
         txs: &Vec<Transaction>,
         batch_size: usize,
-        connect: Option<ArbDatabase>,
+        db: Option<ArbDatabase>,
         event_map: H256Map<EventHistory>,
     ) -> Result<()> {
         info!("loaded {} transactions total...", txs.len());
@@ -51,6 +53,7 @@ impl Hindsight {
             }
             let results = future::join_all(handlers).await;
             let results = results
+                // TODO: can this be cleaned up? so ugly
                 .into_iter()
                 .filter(|res| res.is_ok())
                 .map(|res| res.unwrap())
@@ -58,7 +61,7 @@ impl Hindsight {
                 .map(|res| res.unwrap())
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
-            if let Some(db) = connect.to_owned() {
+            if let Some(db) = db.to_owned() {
                 // can't do && with a `let` in the conditional
                 if !results.is_empty() {
                     db.to_owned().write_arbs(&results).await?;
