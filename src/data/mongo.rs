@@ -53,7 +53,7 @@ impl Into<Document> for ArbFilterParams {
                 "$ne": "0x0",
             }
         } else {
-            // basically a noop, gets any doc
+            // basically a noop; matches any doc w/ this field, which is all of them
             doc! {
                 "$exists": true
             }
@@ -135,8 +135,6 @@ impl ArbDb for MongoConnect {
     }
 
     async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64> {
-        let params_doc: Document = filter_params.to_owned().into();
-        println!("filter_params (get_num_atbs): {:?}", params_doc);
         Ok(self
             .arb_collection
             .count_documents(Some(filter_params.to_owned().into()), None)
@@ -150,8 +148,6 @@ impl ArbDb for MongoConnect {
         offset: Option<u64>,
         limit: Option<i64>,
     ) -> Result<Vec<SimArbResultBatch>> {
-        let params_doc: Document = filter_params.to_owned().into();
-        println!("filter_params: {:?}", params_doc);
         // small optimization: match non-zero profit if min_profit is set and > 0
         let mut cursor = self
             .arb_collection
@@ -165,7 +161,7 @@ impl ArbDb for MongoConnect {
         while let Some(res) = cursor.try_next().await? {
             results.push(res);
         }
-        // gotta filter in memory bc mongo doesn't support bigint comparisons
+        // gotta filter profits in memory bc mongo doesn't support bigint comparisons
         let results = results
             .into_iter()
             .filter(|arb| arb.max_profit >= filter_params.min_profit.unwrap_or(0.into()))
