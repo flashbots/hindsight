@@ -120,7 +120,7 @@ pub async fn run(
         */
         hindsight
             .to_owned()
-            .process_orderflow(&txs, params.batch_size, Some(db.to_owned()), event_map)
+            .process_orderflow(&txs, params.batch_size, Some(db.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
         info!("offset: {:?}", event_params.offset);
