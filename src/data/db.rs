@@ -1,9 +1,11 @@
-use super::{
-    arbs::ArbDatabase,
-    mongo::{MongoConfig, MongoConnect},
-    postgres::{PostgresConfig, PostgresConnect},
+use crate::{
+    data::{
+        arbs::ArbDatabase,
+        mongo::{MongoConfig, MongoConnect},
+        postgres::{PostgresConfig, PostgresConnect},
+    },
+    Result,
 };
-use crate::Result;
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
 
@@ -26,6 +28,12 @@ impl DbEngine {
                 .reduce(|a, b| format!("{} | {}", a, b))
                 .expect("failed to reduce db engines to string")
         )
+    }
+}
+
+impl Default for DbEngine {
+    fn default() -> Self {
+        DbEngine::Mongo(MongoConfig::default())
     }
 }
 

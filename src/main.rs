@@ -4,8 +4,7 @@ use hindsight::{
     config::Config,
     data::{
         arbs::{ArbFilterParams, WriteEngine},
-        db::{Db, DbEngine},
-        MongoConfig,
+        db::Db,
     },
     // debug,
     hindsight::Hindsight,
@@ -36,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Scan {
+            // cli args:
             block_end,
             block_start,
             timestamp_end,
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
                 then we know we've scanned & simulated up to that point.
                 Timestamp is evaluated by default, falls back to block.
             */
-            let db_engine = db_engine.unwrap_or(DbEngine::Mongo(MongoConfig::default()));
+            let db_engine = db_engine.unwrap_or_default();
             let db = Db::new(db_engine.to_owned()).await;
             let (block_start, timestamp_start) =
                 if block_start.is_none() && timestamp_start.is_none() {
@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
                     info!("previously saved event ranges: {:?}", db_ranges);
                     let block_start = db_ranges.latest_block;
                     let timestamp_start = db_ranges.latest_timestamp;
-                    (block_start, timestamp_start)
+                    (block_start as u32, timestamp_start as u32)
                 } else {
                     if block_start.is_some() && timestamp_start.is_some() {
                         panic!("cannot specify both block_start and timestamp_start");
@@ -89,11 +89,12 @@ async fn main() -> anyhow::Result<()> {
                 &ws_client,
                 &mevshare,
                 &hindsight,
-                &db.connect.clone(), // dw, im just cloning an Arc :)
+                &db.connect,
             )
             .await?;
         }
         Some(Commands::Export {
+            // cli args:
             filename,
             block_end,
             block_start,
@@ -103,22 +104,18 @@ async fn main() -> anyhow::Result<()> {
             read_db,
             write_db,
         }) => {
-            let min_profit = if let Some(min_profit) = min_profit {
-                min_profit
-            } else {
-                0f64
-            };
-
+            let min_profit = min_profit.unwrap_or(0f64);
             if min_profit < 0f64 {
                 panic!("min_profit must be >= 0");
-            }
-            if min_profit * 1e9 < 1.0 {
+            } else if min_profit > 0.0 && min_profit * 1e9 < 1.0 {
                 panic!("min_profit must be >= 1e9 wei");
             }
             let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
 
-            // if filename is specified, use that, otherwise use write_engine
-            // if filename & write_engine are both not specified, use file exporter & default filename
+            let db_engine = read_db.unwrap_or_default();
+            let read_db = Db::new(db_engine.to_owned()).await.connect;
+            // if filename is specified, use that, otherwise try write_db
+            // if filename & write_db are both None, use file exporter & default filename
             let write_dest = if filename.is_some() {
                 WriteEngine::File(filename)
             } else {
@@ -128,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
                     WriteEngine::File(None)
                 }
             };
+
             commands::export::run(
                 ArbFilterParams {
                     block_end,
@@ -136,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
                     timestamp_start,
                     min_profit: Some(umin_profit),
                 },
-                read_db.unwrap_or(DbEngine::Mongo(MongoConfig::default())),
+                &read_db,
                 write_dest,
             )
             .await?;

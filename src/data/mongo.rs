@@ -44,9 +44,9 @@ impl Default for MongoConfig {
 impl Into<Document> for ArbFilterParams {
     fn into(self) -> Document {
         let block_start = self.block_start.unwrap_or(1);
-        let block_end = self.block_end.unwrap_or(f64::MAX as u64);
+        let block_end = self.block_end.unwrap_or(u32::MAX);
         let timestamp_start = self.timestamp_start.unwrap_or(1);
-        let timestamp_end = self.timestamp_end.unwrap_or(f64::MAX as u64);
+        let timestamp_end = self.timestamp_end.unwrap_or(u32::MAX);
         let min_profit = self.min_profit.unwrap_or(0.into());
         let max_profit = if min_profit > 0.into() {
             doc! {
@@ -61,14 +61,14 @@ impl Into<Document> for ArbFilterParams {
 
         doc! {
                 "event.block": {
-                    "$gte": block_start as f64,
-                    "$lte": block_end as f64,
+                    "$gte": block_start as u32,
+                    "$lte": block_end as u32,
                 },
                 "event.timestamp": {
-                    "$gte": timestamp_start as f64,
-                    "$lte": timestamp_end as f64,
+                    "$gte": timestamp_start as u32,
+                    "$lte": timestamp_end as u32,
                 },
-                "max_profit": max_profit,
+                "maxProfit": max_profit,
         }
     }
 }
@@ -135,6 +135,8 @@ impl ArbDb for MongoConnect {
     }
 
     async fn get_num_arbs(&self, filter_params: &ArbFilterParams) -> Result<u64> {
+        let params_doc: Document = filter_params.to_owned().into();
+        println!("filter_params (get_num_atbs): {:?}", params_doc);
         Ok(self
             .arb_collection
             .count_documents(Some(filter_params.to_owned().into()), None)
@@ -148,6 +150,8 @@ impl ArbDb for MongoConnect {
         offset: Option<u64>,
         limit: Option<i64>,
     ) -> Result<Vec<SimArbResultBatch>> {
+        let params_doc: Document = filter_params.to_owned().into();
+        println!("filter_params: {:?}", params_doc);
         // small optimization: match non-zero profit if min_profit is set and > 0
         let mut cursor = self
             .arb_collection
@@ -211,7 +215,7 @@ mod test {
     use crate::{config::Config, interfaces::SimArbResultBatch, Result};
 
     async fn inject_test_arbs(
-        connect: &dyn ArbDb,
+        connect: &MongoConnect,
         quantity: u64,
     ) -> Result<Vec<SimArbResultBatch>> {
         let mut arbs = vec![];
@@ -262,8 +266,8 @@ mod test {
         let arbs = connect
             .read_arbs(
                 &ArbFilterParams {
-                    block_start: Some(block_first + 5),
-                    block_end: Some(block_first + 9),
+                    block_start: Some(block_first as u32 + 5),
+                    block_end: Some(block_first as u32 + 9),
                     timestamp_start: Some(0x6464beef),
                     timestamp_end: Some(0x6464deaf),
                     min_profit: Some(1.into()),

@@ -21,16 +21,16 @@ pub enum Commands {
     Scan {
         /// Scan from this block.
         #[arg(short, long)]
-        block_start: Option<u64>,
+        block_start: Option<u32>,
         /// Scan from this block.
         #[arg(short, long)]
-        timestamp_start: Option<u64>,
+        timestamp_start: Option<u32>,
         /// Scan until this block.
         #[arg(long)]
-        block_end: Option<u64>,
+        block_end: Option<u32>,
         /// Scan until this timestamp.
         #[arg(long)]
-        timestamp_end: Option<u64>,
+        timestamp_end: Option<u32>,
         /// Number of transactions to simulate concurrently. Defaults to 1/2 the CPU cores on host.
         #[arg(short = 'n', long)]
         batch_size: Option<usize>,
@@ -50,16 +50,16 @@ pub enum Commands {
         filename: Option<String>,
         /// Export arbs starting from this timestamp.
         #[arg(short, long)]
-        timestamp_start: Option<u64>,
+        timestamp_start: Option<u32>,
         /// Stop exporting arbs at this timestamp.
         #[arg(long)]
-        timestamp_end: Option<u64>,
+        timestamp_end: Option<u32>,
         /// Export arbs starting from this block.
         #[arg(short, long)]
-        block_start: Option<u64>,
+        block_start: Option<u32>,
         /// Stop exporting arbs at this block.
         #[arg(long)]
-        block_end: Option<u64>,
+        block_end: Option<u32>,
         /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e16 wei)
         #[arg(short = 'p', long)]
         min_profit: Option<f64>,

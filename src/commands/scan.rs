@@ -13,20 +13,20 @@ use std::str::FromStr;
 #[derive(Clone, Debug)]
 pub struct ScanOptions {
     pub batch_size: usize,
-    pub block_start: u64,
-    pub block_end: Option<u64>,
-    pub timestamp_start: u64,
-    pub timestamp_end: Option<u64>,
+    pub block_start: u32,
+    pub block_end: Option<u32>,
+    pub timestamp_start: u32,
+    pub timestamp_end: Option<u32>,
     pub db_engine: DbEngine,
 }
 
 impl Into<EventHistoryParams> for ScanOptions {
     fn into(self) -> EventHistoryParams {
         EventHistoryParams {
-            block_start: Some(self.block_start),
-            block_end: self.block_end,
-            timestamp_start: Some(self.timestamp_start),
-            timestamp_end: self.timestamp_end,
+            block_start: Some(self.block_start.into()),
+            block_end: self.block_end.map(|x| x.into()),
+            timestamp_start: Some(self.timestamp_start.into()),
+            timestamp_end: self.timestamp_end.map(|x| x.into()),
             limit: Some(500),
             offset: Some(0),
         }

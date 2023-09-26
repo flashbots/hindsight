@@ -4,8 +4,8 @@ use tokio::sync::Mutex;
 
 use super::db::DbEngine;
 use crate::{
-    data::{db::Db, file::save_arbs_to_file},
-    debug, info,
+    data::{db::Db, file::FileWriter},
+    info,
     interfaces::{SimArbResultBatch, StoredArbsRanges},
     Result,
 };
@@ -17,10 +17,10 @@ const NUM_ARBS_PER_READ: i64 = 3000;
 
 #[derive(Clone, Debug)]
 pub struct ArbFilterParams {
-    pub block_start: Option<u64>,
-    pub block_end: Option<u64>,
-    pub timestamp_start: Option<u64>,
-    pub timestamp_end: Option<u64>,
+    pub block_start: Option<u32>,
+    pub block_end: Option<u32>,
+    pub timestamp_start: Option<u32>,
+    pub timestamp_end: Option<u32>,
     pub min_profit: Option<U256>,
 }
 
@@ -72,9 +72,16 @@ pub async fn export_arbs_core(
     write_dest: WriteEngine,
     filter_params: &ArbFilterParams,
 ) -> Result<()> {
-    // determine total number of arbs now to prevent running forever
+    /* Spawns a reader thread and a writer thread.
+       Reader thread reads arbs from `src` and pushes them to a thread-safe queue.
+       Writer thread pops arbs from the queue and writes them to `write_dest`.
+       When the reader thread is done, it unlocks a mutex that the writer thread is waiting on.
+       When the writer thread is done, it quits and the function returns.
+    */
+
+    // determine total number of arbs now to prevent running forever in case `scan` is running concurrently
     let total_arbs = src.get_num_arbs(filter_params).await?;
-    debug!("total arbs: {}", total_arbs);
+    info!("total arbs: {}", total_arbs);
     let offset_lock = Arc::new(Mutex::new(0));
 
     // thread-safe queue
@@ -142,6 +149,13 @@ pub async fn export_arbs_core(
 
     // arc clone to give to the writer thread
     let arb_queue = arb_queue_handle.clone();
+
+    // init chosen write engine
+    let write_engine = match write_dest.clone() {
+        WriteEngine::File(filename) => Arc::new(FileWriter::new(filename)),
+        WriteEngine::Db(db_engine) => Db::new(db_engine).await.connect,
+    };
+
     // start writer thread
     let write_handle = tokio::spawn(async move {
         info!("starting writer thread...");
@@ -155,25 +169,17 @@ pub async fn export_arbs_core(
 
             info!("finna write {} arbs", batch_arbs.len());
             if batch_arbs.len() > 0 {
-                match write_dest.clone() {
-                    WriteEngine::File(filename) => {
-                        save_arbs_to_file(filename, batch_arbs)
-                            .await
-                            .expect("failed to write arbs to file");
-                    }
-                    WriteEngine::Db(db_engine) => {
-                        let db = Db::new(db_engine).await.connect;
-                        db.write_arbs(&batch_arbs)
-                            .await
-                            .expect("failed to write arbs to db");
-                        info!("wrote {} arbs to db", batch_arbs.len());
-                    }
-                }
+                write_engine
+                    .write_arbs(&batch_arbs)
+                    .await
+                    .expect("failed to write arbs");
             } else {
                 info!("no arbs to write, sleeping...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
+
             // if process_done is unlocked, reader thread is done
+            // then if our queue is empty, we can quit
             if process_done.try_lock().is_ok() && arb_queue.len() == 0 {
                 info!("reader thread done, writer thread quitting...");
                 break;
