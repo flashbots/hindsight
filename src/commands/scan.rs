@@ -1,22 +1,21 @@
-use crate::config::Config;
-use crate::data::db::{Db, DbEngine};
+use crate::data::arbs::ArbDatabase;
+use crate::data::db::DbEngine;
 use crate::event_history::event_history_url;
 use crate::hindsight::Hindsight;
 use crate::info;
 use crate::sim::processor::H256Map;
-use crate::util::{fetch_txs, filter_events_by_topic, get_ws_client};
+use crate::util::{fetch_txs, filter_events_by_topic, WsClient};
 use crate::Result;
 use ethers::types::H256;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 use std::str::FromStr;
-use std::thread::available_parallelism;
 
 #[derive(Clone, Debug)]
 pub struct ScanOptions {
-    pub batch_size: Option<usize>,
-    pub block_start: Option<u64>,
+    pub batch_size: usize,
+    pub block_start: u64,
     pub block_end: Option<u64>,
-    pub timestamp_start: Option<u64>,
+    pub timestamp_start: u64,
     pub timestamp_end: Option<u64>,
     pub db_engine: DbEngine,
 }
@@ -24,9 +23,9 @@ pub struct ScanOptions {
 impl Into<EventHistoryParams> for ScanOptions {
     fn into(self) -> EventHistoryParams {
         EventHistoryParams {
-            block_start: self.block_start,
+            block_start: Some(self.block_start),
             block_end: self.block_end,
-            timestamp_start: self.timestamp_start,
+            timestamp_start: Some(self.timestamp_start),
             timestamp_end: self.timestamp_end,
             limit: Some(500),
             offset: Some(0),
@@ -47,51 +46,20 @@ fn uniswap_topics() -> Vec<H256> {
     ]
 }
 
-pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
+pub async fn run(
+    params: ScanOptions,
+    ws_client: &WsClient,
+    mevshare: &EventClient,
+    hindsight: &Hindsight,
+    db: &ArbDatabase,
+) -> Result<()> {
     info!(
         "scanning events starting at block={:?} timestamp={:?}",
         params.block_start, params.timestamp_start
     );
-    let ws_client = get_ws_client(None).await?;
-    let mevshare = EventClient::default();
-    let hindsight = Hindsight::new(config.rpc_url_ws).await?;
-
-    let db = Db::new(params.db_engine.to_owned()).await;
 
     let mut event_params: EventHistoryParams = params.clone().into();
-    let batch_size = params.batch_size.unwrap_or(
-        // use half the number of cores as default batch size, if available
-        // if num cpus cannot be detected, use 4.
-        // reason to use half: each event may spawn multiple threads, likely to exceed cpu count.
-        available_parallelism()
-            .map(|n| usize::from(n) / 2)
-            .unwrap_or(4)
-            .max(1),
-    );
 
-    /* Refine params based on ranges present in DB.
-        TODO: ask user if they want to do this.
-        Overwriting old results may be desired, but not the default.
-        Replace the provided timestamp/block params with the latest respective
-        value + 1 in the DB if it's higher than the param.
-        We add 1 to prevent duplicates. If an arb is saved in the DB,
-        then we know we've scanned & simulated up to that point.
-        Timestamp is evaluated by default, falls back to block.
-    */
-    let db_ranges = db.connect.get_previously_saved_ranges().await?;
-    info!("previously saved event ranges: {:?}", db_ranges);
-    if let Some(timestamp_start) = params.timestamp_start {
-        event_params.timestamp_start = Some(timestamp_start.max(db_ranges.latest_timestamp + 1));
-    } else if let Some(block_start) = params.block_start {
-        event_params.block_start = Some(block_start.max(db_ranges.latest_block + 1));
-    }
-
-    info!(
-        "starting at block={:?}, timestamp={:?}",
-        event_params.block_start, event_params.timestamp_start
-    );
-
-    info!("batch size: {}", batch_size);
     let filter_topics = uniswap_topics();
     /* ========================== event processing ====================================== */
     loop {
@@ -99,14 +67,17 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         let events = mevshare
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
+        // if the api returns 0 results, we've completely run out of events to process
+        // so wait then restart loop
+        if events.len() == 0 {
+            // sleep 12s to allow for new events to be indexed
+            std::thread::sleep(std::time::Duration::from_secs(12));
+            continue;
+        }
 
         // update params for next batch of events
         event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
-        // if the api returns < limit, we've run out of events to process
-        // (reached present moment) so we exit
-        if events.len() < event_params.limit.unwrap_or(500) as usize {
-            break;
-        }
+
         info!(
             "fetched {} events. first event timestamp={}",
             events.len(),
@@ -126,13 +97,14 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
 
         let mut events_offset = 0;
         let mut txs = vec![];
+
         // Concurrently fetch all landed txs for each event.
         // Only request `batch_size` at a time to avoid overloading the RPC endpoint.
         while events_offset < events.len() {
             let this_batch = events
                 .iter()
                 .skip(events_offset)
-                .take(batch_size)
+                .take(params.batch_size)
                 .map(|event| event.to_owned())
                 .collect::<Vec<EventHistory>>();
             events_offset += this_batch.len();
@@ -148,11 +120,17 @@ pub async fn run(params: ScanOptions, config: Config) -> Result<()> {
         */
         hindsight
             .to_owned()
-            .process_orderflow(&txs, batch_size, Some(db.connect.clone()), event_map)
+            .process_orderflow(&txs, params.batch_size, Some(db.to_owned()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
         info!("offset: {:?}", event_params.offset);
-    }
 
-    Ok(())
+        // if the api returns < limit, we're processing the most recent events
+        // so we pause to avoid the loop spamming the api
+        if events.len() < event_params.limit.unwrap_or(500) as usize {
+            // sleep 12s to allow for new events to be indexed
+            std::thread::sleep(std::time::Duration::from_secs(12));
+            continue;
+        }
+    }
 }

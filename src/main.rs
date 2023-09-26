@@ -4,12 +4,17 @@ use hindsight::{
     config::Config,
     data::{
         arbs::{ArbFilterParams, WriteEngine},
-        db::DbEngine,
+        db::{Db, DbEngine},
         MongoConfig,
     },
-    debug,
+    // debug,
+    hindsight::Hindsight,
+    info,
+    util::get_ws_client,
 };
+use mev_share_sse::EventClient;
 use revm::primitives::bitvec::macros::internal::funty::Fundamental;
+use std::thread::available_parallelism;
 mod cli;
 use cli::{Cli, Commands};
 
@@ -18,6 +23,16 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let config = Config::default();
     let cli = Cli::parse_args();
+
+    ctrlc::set_handler(move || {
+        println!("\nstopping hindsight!");
+        std::process::exit(0);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    let ws_client = get_ws_client(None).await?;
+    let mevshare = EventClient::default();
+    let hindsight = Hindsight::new(config.rpc_url_ws).await?;
 
     match cli.command {
         Some(Commands::Scan {
@@ -28,16 +43,55 @@ async fn main() -> anyhow::Result<()> {
             batch_size,
             db_engine,
         }) => {
-            debug!("scan command");
+            /* If no start/end params are defined,
+                refine params based on ranges present in DB.
+                Overwriting old results may be accomplished by setting the start/end timestamp/block params.
+                Replace the provided timestamp/block params with the latest respective
+                value + 1 in the DB if it's higher than the param.
+                We add 1 to prevent duplicates. If an arb is saved in the DB,
+                then we know we've scanned & simulated up to that point.
+                Timestamp is evaluated by default, falls back to block.
+            */
+            let db_engine = db_engine.unwrap_or(DbEngine::Mongo(MongoConfig::default()));
+            let db = Db::new(db_engine.to_owned()).await;
+            let (block_start, timestamp_start) =
+                if block_start.is_none() && timestamp_start.is_none() {
+                    let db_ranges = db.connect.get_previously_saved_ranges().await?;
+                    info!("previously saved event ranges: {:?}", db_ranges);
+                    let block_start = db_ranges.latest_block;
+                    let timestamp_start = db_ranges.latest_timestamp;
+                    (block_start, timestamp_start)
+                } else {
+                    if block_start.is_some() && timestamp_start.is_some() {
+                        panic!("cannot specify both block_start and timestamp_start");
+                    }
+                    // use whichever is specified; the other (being 1) will not alter the selection
+                    (block_start.unwrap_or(1), timestamp_start.unwrap_or(1))
+                };
+
+            let batch_size = batch_size.unwrap_or(
+                available_parallelism()
+                    .map(|n| usize::from(n) / 2)
+                    .unwrap_or(4)
+                    .max(1),
+            );
+            info!("batch size: {}", batch_size);
             let scan_options = commands::scan::ScanOptions {
                 block_start,
                 block_end,
                 timestamp_start,
                 timestamp_end,
                 batch_size,
-                db_engine: db_engine.unwrap_or(DbEngine::Mongo(MongoConfig::default())),
+                db_engine,
             };
-            commands::scan::run(scan_options.to_owned(), config.to_owned()).await?;
+            commands::scan::run(
+                scan_options.to_owned(),
+                &ws_client,
+                &mevshare,
+                &hindsight,
+                &db.connect.clone(), // dw, im just cloning an Arc :)
+            )
+            .await?;
         }
         Some(Commands::Export {
             filename,
@@ -55,6 +109,12 @@ async fn main() -> anyhow::Result<()> {
                 0f64
             };
 
+            if min_profit < 0f64 {
+                panic!("min_profit must be >= 0");
+            }
+            if min_profit * 1e9 < 1.0 {
+                panic!("min_profit must be >= 1e9 wei");
+            }
             let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
 
             // if filename is specified, use that, otherwise use write_engine

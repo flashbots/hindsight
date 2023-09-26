@@ -12,6 +12,7 @@ async-trait = "0.1.73"
 chrono = { version = "0.4.30", features = ["serde"] }
 clap = {version = "4.3.11", features = ["derive"]}
 colored = "2.0.4"
+ctrlc = "3.4.1"
 deadqueue = "0.2.4"
 dotenvy = "0.15.7"
 ethers = "2.0.7"
