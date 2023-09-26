@@ -63,12 +63,12 @@ pub async fn run(
     let filter_topics = uniswap_topics();
     /* ========================== event processing ====================================== */
     loop {
-        // fetch events (500)
+        // fetch events
         let events = mevshare
             .event_history(&event_history_url(), event_params.to_owned())
             .await?;
         // if the api returns 0 results, we've completely run out of events to process
-        // so wait then restart loop
+        // so wait, then restart loop
         if events.len() == 0 {
             // sleep 12s to allow for new events to be indexed
             std::thread::sleep(std::time::Duration::from_secs(12));
@@ -130,7 +130,6 @@ pub async fn run(
         if events.len() < event_params.limit.unwrap_or(500) as usize {
             // sleep 12s to allow for new events to be indexed
             std::thread::sleep(std::time::Duration::from_secs(12));
-            continue;
         }
     }
 }
