@@ -128,8 +128,13 @@ pub async fn run(
         // if the api returns < limit, we're processing the most recent events
         // so we pause to avoid the loop spamming the api
         if events.len() < event_params.limit.unwrap_or(500) as usize {
+            if params.block_end.is_some() || params.timestamp_end.is_some() {
+                // if we're processing a specific block range, we're done
+                break;
+            }
             // sleep 12s to allow for new events to be indexed
             std::thread::sleep(std::time::Duration::from_secs(12));
         }
     }
+    Ok(())
 }
