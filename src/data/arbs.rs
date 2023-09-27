@@ -156,7 +156,9 @@ pub async fn export_arbs_core(
         WriteEngine::Db(db_engine) => Db::new(db_engine).await.connect,
     };
 
+    let total_arbs = Arc::new(Mutex::new(0));
     // start writer thread
+    let all_arbs = total_arbs.clone();
     let write_handle = tokio::spawn(async move {
         info!("starting writer thread...");
         loop {
@@ -168,11 +170,16 @@ pub async fn export_arbs_core(
             }
 
             info!("finna write {} arbs", batch_arbs.len());
-            if batch_arbs.len() > 0 {
+            let batch_len = batch_arbs.len();
+            if batch_len > 0 {
                 write_engine
                     .write_arbs(&batch_arbs)
                     .await
                     .expect("failed to write arbs");
+                info!("exported {} arbs", batch_len);
+                let total_arbs = all_arbs.clone();
+                let mut total_arbs = total_arbs.lock().await;
+                *total_arbs += batch_len;
             } else {
                 info!("no arbs to write, sleeping...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -188,6 +195,8 @@ pub async fn export_arbs_core(
     });
 
     join_all(vec![read_handle, write_handle]).await;
+
+    info!("wrote total of {} arbs", total_arbs.lock().await);
 
     Ok(())
 }
