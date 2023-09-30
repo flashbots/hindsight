@@ -36,7 +36,7 @@ pub async fn simulate_backrun_arbs(
         base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
     };
 
-    let res = find_optimal_backrun_amount_in_out(&client, tx, &event, &block_info).await?;
+    let res = find_optimal_backrun_amount_in_out(client, tx, event, &block_info).await?;
     let mut max_profit = U256::from(0);
     /*
        Sum up the profit from each result. Generally there should only be one result, but if

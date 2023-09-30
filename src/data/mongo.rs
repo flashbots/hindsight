@@ -16,9 +16,9 @@ use mongodb::{options::ClientOptions, Client as DbClient, Database};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub const DB_NAME: &'static str = "hindsight";
-const PROJECT_NAME: &'static str = "simulator";
-const ARB_COLLECTION: &'static str = "arbs";
+pub const DB_NAME: &str = "hindsight";
+const PROJECT_NAME: &str = "simulator";
+const ARB_COLLECTION: &str = "arbs";
 
 #[derive(Debug, Clone)]
 pub struct MongoConnect {
@@ -41,13 +41,13 @@ impl Default for MongoConfig {
     }
 }
 
-impl Into<Document> for ArbFilterParams {
-    fn into(self) -> Document {
-        let block_start = self.block_start.unwrap_or(1);
-        let block_end = self.block_end.unwrap_or(u32::MAX);
-        let timestamp_start = self.timestamp_start.unwrap_or(1);
-        let timestamp_end = self.timestamp_end.unwrap_or(u32::MAX);
-        let min_profit = self.min_profit.unwrap_or(0.into());
+impl From<ArbFilterParams> for Document {
+    fn from(val: ArbFilterParams) -> Self {
+        let block_start = val.block_start.unwrap_or(1);
+        let block_end = val.block_end.unwrap_or(u32::MAX);
+        let timestamp_start = val.timestamp_start.unwrap_or(1);
+        let timestamp_end = val.timestamp_end.unwrap_or(u32::MAX);
+        let min_profit = val.min_profit.unwrap_or(0.into());
         let max_profit = if min_profit > 0.into() {
             doc! {
                 "$ne": "0x0",
@@ -61,12 +61,12 @@ impl Into<Document> for ArbFilterParams {
 
         doc! {
                 "event.block": {
-                    "$gte": block_start as u32,
-                    "$lte": block_end as u32,
+                    "$gte": block_start,
+                    "$lte": block_end,
                 },
                 "event.timestamp": {
-                    "$gte": timestamp_start as u32,
-                    "$lte": timestamp_end as u32,
+                    "$gte": timestamp_start,
+                    "$lte": timestamp_end,
                 },
                 "maxProfit": max_profit,
         }
@@ -129,7 +129,7 @@ impl MongoConnect {
 #[async_trait]
 impl ArbDb for MongoConnect {
     /// Write given arbs to the DB.
-    async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
+    async fn write_arbs(&self, arbs: &[SimArbResultBatch]) -> Result<()> {
         self.arb_collection.insert_many(arbs, None).await?;
         Ok(())
     }
@@ -276,7 +276,7 @@ mod test {
             "arbs: {:?}",
             arbs.iter().map(|arb| arb.event.block).collect::<Vec<_>>()
         );
-        assert!(arbs.len() > 0);
+        assert!(!arbs.is_empty());
         assert!(arbs.len() <= 3);
         assert!(arbs.iter().all(|arb| arb.event.block >= block_first + 5));
 
