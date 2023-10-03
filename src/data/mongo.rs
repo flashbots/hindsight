@@ -60,15 +60,15 @@ impl Into<Document> for ArbFilterParams {
         };
 
         doc! {
-                "event.block": {
-                    "$gte": block_start as u32,
-                    "$lte": block_end as u32,
-                },
-                "event.timestamp": {
-                    "$gte": timestamp_start as u32,
-                    "$lte": timestamp_end as u32,
-                },
-                "maxProfit": max_profit,
+            "event.block": {
+                "$gte": block_start as u32,
+                "$lte": block_end as u32,
+            },
+            "event.timestamp": {
+                "$gte": timestamp_start as u32,
+                "$lte": timestamp_end as u32,
+            },
+            "maxProfit": max_profit,
         }
     }
 }
@@ -204,7 +204,6 @@ impl ArbDb for MongoConnect {
     }
 }
 
-// TODO: move these, generalize connect to test both dbs
 #[cfg(test)]
 mod test {
     use super::*;
