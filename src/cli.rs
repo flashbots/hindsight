@@ -4,6 +4,9 @@ use hindsight::data::db::DbEngine;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    #[arg(short, long, default_value = "20")]
+    pub ws_max_reconnects: Option<usize>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

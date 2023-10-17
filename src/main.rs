@@ -1,7 +1,6 @@
 use ethers::types::U256;
 use hindsight::{
     commands::{self},
-    config::Config,
     data::{
         arbs::{ArbFilterParams, WriteEngine},
         db::Db,
@@ -20,7 +19,6 @@ use cli::{Cli, Commands};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let config = Config::default();
     let cli = Cli::parse_args();
 
     ctrlc::set_handler(move || {
@@ -29,9 +27,10 @@ async fn main() -> anyhow::Result<()> {
     })
     .expect("Error setting Ctrl-C handler");
 
-    let ws_client = get_ws_client(None).await?;
+    let max_reconnects = cli.ws_max_reconnects.unwrap_or_default();
+    let ws_client = get_ws_client(None, max_reconnects).await?;
     let mevshare = EventClient::default();
-    let hindsight = Hindsight::new(config.rpc_url_ws).await?;
+    let hindsight = Hindsight::new(ws_client.clone()).await?;
 
     match cli.command {
         Some(Commands::Scan {
