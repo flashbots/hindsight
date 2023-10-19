@@ -206,8 +206,14 @@ impl ArbDb for MongoConnect {
 
 #[cfg(test)]
 mod test {
+    use ethers::types::Address;
+
     use super::*;
-    use crate::{config::Config, interfaces::SimArbResultBatch, Result};
+    use crate::{
+        config::Config,
+        interfaces::{SimArbResultBatch, TokenPair},
+        Result,
+    };
 
     async fn inject_test_arbs(
         connect: &MongoConnect,
@@ -266,6 +272,14 @@ mod test {
                     timestamp_start: Some(0x6464beef),
                     timestamp_end: Some(0x6464deaf),
                     min_profit: Some(1.into()),
+                    token_pair: Some(TokenPair {
+                        weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                            .parse::<Address>()
+                            .unwrap(),
+                        token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+                            .parse::<Address>()
+                            .unwrap(),
+                    }),
                 },
                 Some(1),
                 Some(3),

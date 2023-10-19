@@ -6,7 +6,7 @@ use super::db::DbEngine;
 use crate::{
     data::{db::Db, file::FileWriter},
     info,
-    interfaces::{SimArbResultBatch, StoredArbsRanges},
+    interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
     Result,
 };
 use async_trait::async_trait;
@@ -22,6 +22,7 @@ pub struct ArbFilterParams {
     pub timestamp_start: Option<u32>,
     pub timestamp_end: Option<u32>,
     pub min_profit: Option<U256>,
+    pub token_pair: Option<TokenPair>,
 }
 
 impl Default for ArbFilterParams {
@@ -38,6 +39,7 @@ impl ArbFilterParams {
             timestamp_start: None,
             timestamp_end: None,
             min_profit: None,
+            token_pair: None,
         }
     }
 }

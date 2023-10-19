@@ -9,6 +9,12 @@ pub struct SimArbResult {
     pub backrun_trade: BackrunResult,
 }
 
+#[derive(Clone, Debug)]
+pub struct SimArb {
+    pub pair_tokens: TokenPair,
+    pub amount_in: U256,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackrunResult {
@@ -76,7 +82,7 @@ pub enum PoolVariant {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ethers::types::H256;
+    use ethers::{types::H256, utils::parse_ether};
     use mev_share_sse::Hint;
     use rand::Rng;
     impl SimArbResultBatch {
@@ -96,8 +102,69 @@ mod test {
                         mev_gas_price: None,
                     },
                 },
-                results: vec![],
+                results: vec![
+                    SimArbResult::test_example(0f64),
+                    SimArbResult::test_example(0.1f64),
+                    SimArbResult::test_example(1f64),
+                ],
                 max_profit: 0x1337.into(),
+            }
+        }
+    }
+
+    impl SimArbResult {
+        pub fn test_example(profit_d: f64) -> Self {
+            Self {
+                user_trade: UserTradeParams {
+                    pool_variant: PoolVariant::UniswapV2,
+                    token_in: Address::zero(),
+                    token_out: Address::zero(),
+                    amount0_sent: 0.into(),
+                    amount1_sent: 0.into(),
+                    token0_is_weth: false,
+                    pool: Address::zero(),
+                    price: 0.into(),
+                    tokens: TokenPair {
+                        weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                            .parse::<Address>()
+                            .unwrap(),
+                        token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+                            // SHIB
+                            .parse::<Address>()
+                            .unwrap(),
+                    },
+                    arb_pools: vec![
+                        PairPool {
+                            variant: PoolVariant::UniswapV2,
+                            address: "0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f"
+                                // uniV2 SHIB/WETH
+                                .parse::<Address>()
+                                .unwrap(),
+                        },
+                        PairPool {
+                            variant: PoolVariant::UniswapV2,
+                            address: "0x24D3dD4a62e29770cf98810b09F89D3A90279E7a"
+                                // sushi SHIB/WETH
+                                .parse::<Address>()
+                                .unwrap(),
+                        },
+                    ],
+                },
+                backrun_trade: BackrunResult {
+                    amount_in: parse_ether(1.1).unwrap(),
+                    balance_end: parse_ether(1.1).unwrap(),
+                    profit: parse_ether(0.1 + profit_d).unwrap(),
+                    start_pool: "0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f"
+                        // uniV2 SHIB/WETH
+                        .parse::<Address>()
+                        .unwrap(),
+                    end_pool: "0x24D3dD4a62e29770cf98810b09F89D3A90279E7a"
+                        // sushi SHIB/WETH
+                        .parse::<Address>()
+                        .unwrap(),
+                    start_variant: PoolVariant::UniswapV2,
+                    end_variant: PoolVariant::UniswapV2,
+                },
             }
         }
     }

@@ -132,6 +132,7 @@ async fn main() -> anyhow::Result<()> {
                     timestamp_end,
                     timestamp_start,
                     min_profit: Some(umin_profit),
+                    token_pair: None,
                 },
                 &read_db,
                 write_dest,

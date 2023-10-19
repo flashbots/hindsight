@@ -3,6 +3,7 @@ pub mod config;
 pub mod data;
 pub mod error;
 pub mod event_history;
+pub mod foresight;
 pub mod hindsight;
 pub mod interfaces;
 pub mod sim;
