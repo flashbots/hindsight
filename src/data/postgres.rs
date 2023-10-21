@@ -44,10 +44,10 @@ fn where_filter(filter: &ArbFilterParams) -> String {
         params.push(format!("block_number <= {}", block_end));
     }
     if let Some(timestamp_start) = filter.timestamp_start {
-        params.push(format!("timestamp >= {}", timestamp_start));
+        params.push(format!("event_timestamp >= {}", timestamp_start));
     }
     if let Some(timestamp_end) = filter.timestamp_end {
-        params.push(format!("timestamp <= {}", timestamp_end));
+        params.push(format!("event_timestamp <= {}", timestamp_end));
     }
     if let Some(min_profit) = filter.min_profit {
         params.push(format!("profit__eth__ >= {}", format_ether(min_profit)));
@@ -55,11 +55,18 @@ fn where_filter(filter: &ArbFilterParams) -> String {
     params.join(" AND ")
 }
 
-fn select_arbs_query(filter: &ArbFilterParams) -> String {
+fn select_arbs_query(filter: &ArbFilterParams, limit: Option<i64>, offset: Option<u64>) -> String {
     let mut query = "SELECT * FROM ".to_string();
     query.push_str(ARBS_TABLE);
     query.push_str(" WHERE ");
     query.push_str(&where_filter(filter));
+    query.push_str(" ORDER BY event_timestamp");
+    if let Some(limit) = limit {
+        query.push_str(&format!(" LIMIT {}", limit));
+    }
+    if let Some(offset) = offset {
+        query.push_str(&format!(" OFFSET {}", offset));
+    }
     query
 }
 
@@ -166,10 +173,10 @@ impl ArbDb for PostgresConnect {
     async fn read_arbs(
         &self,
         filter_params: &ArbFilterParams,
-        _offset: Option<u64>,
-        _limit: Option<i64>,
+        offset: Option<u64>,
+        limit: Option<i64>,
     ) -> Result<Vec<SimArbResultBatch>> {
-        let query = select_arbs_query(filter_params);
+        let query = select_arbs_query(filter_params, limit, offset);
         let rows = self.client.query(&query, &[]).await?;
         let arbs = rows
             .into_iter()
