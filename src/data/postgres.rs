@@ -9,9 +9,8 @@ use crate::{
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use ethers::{
-    abi::AbiEncode,
     types::{Address, H256, I256, U256},
-    utils::{format_ether, hex::ToHex, parse_ether},
+    utils::{format_ether, parse_ether},
 };
 use futures::future::join_all;
 use mev_share_sse::{EventHistory, Hint};

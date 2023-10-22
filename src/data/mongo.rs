@@ -1,10 +1,13 @@
 use super::arbs::{export_arbs_core, ArbDb, ArbFilterParams, WriteEngine};
-use crate::interfaces::SimArbResultBatch;
-use crate::interfaces::StoredArbsRanges;
-use crate::Result;
+use crate::{
+    debug,
+    interfaces::{SimArbResultBatch, StoredArbsRanges},
+    Result,
+};
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use mongodb::bson::Document;
+use mongodb::bson::Regex;
 use mongodb::options::Tls;
 use mongodb::options::TlsOptions;
 use mongodb::{
@@ -59,7 +62,31 @@ impl Into<Document> for ArbFilterParams {
             }
         };
 
-        doc! {
+        let (token, weth) = if let Some(pair) = self.token_pair {
+            let token_regex = Regex {
+                pattern: format!("{:?}", pair.token),
+                options: "i".to_owned(),
+            };
+            let weth_regex = Regex {
+                pattern: format!("{:?}", pair.weth),
+                options: "i".to_owned(),
+            };
+            (token_regex, weth_regex)
+        } else {
+            // basically a noop; matches any doc w/ this field, which is all of them
+            (
+                Regex {
+                    pattern: ".*".to_owned(),
+                    options: "i".to_owned(),
+                },
+                Regex {
+                    pattern: ".*".to_owned(),
+                    options: "i".to_owned(),
+                },
+            )
+        };
+
+        let query = doc! {
             "event.block": {
                 "$gte": block_start as u32,
                 "$lte": block_end as u32,
@@ -68,8 +95,12 @@ impl Into<Document> for ArbFilterParams {
                 "$gte": timestamp_start as u32,
                 "$lte": timestamp_end as u32,
             },
+            "results.userTrade.tokens.token": token,
+            "results.userTrade.tokens.weth": weth,
             "maxProfit": max_profit,
-        }
+        };
+        debug!("query: {:?}", query);
+        query
     }
 }
 
@@ -149,6 +180,7 @@ impl ArbDb for MongoConnect {
         limit: Option<i64>,
     ) -> Result<Vec<SimArbResultBatch>> {
         // small optimization: match non-zero profit if min_profit is set and > 0
+        debug!("filter_params: {:?}", filter_params);
         let mut cursor = self
             .arb_collection
             .find(
@@ -269,9 +301,10 @@ mod test {
                 &ArbFilterParams {
                     block_start: Some(block_first as u32 + 5),
                     block_end: Some(block_first as u32 + 9),
-                    timestamp_start: Some(0x6464beef),
-                    timestamp_end: Some(0x6464deaf),
+                    timestamp_start: None,
+                    timestamp_end: None,
                     min_profit: Some(1.into()),
+                    // token_pair: None,
                     token_pair: Some(TokenPair {
                         weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
                             .parse::<Address>()
@@ -281,8 +314,8 @@ mod test {
                             .unwrap(),
                     }),
                 },
-                Some(1),
-                Some(3),
+                None,
+                Some(5),
             )
             .await?;
         println!(
@@ -290,7 +323,7 @@ mod test {
             arbs.iter().map(|arb| arb.event.block).collect::<Vec<_>>()
         );
         assert!(arbs.len() > 0);
-        assert!(arbs.len() <= 3);
+        assert!(arbs.len() <= 5);
         assert!(arbs.iter().all(|arb| arb.event.block >= block_first + 5));
 
         Ok(())
