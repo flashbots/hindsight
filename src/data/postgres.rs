@@ -1,13 +1,17 @@
 use super::arbs::{ArbDb, ArbFilterParams, WriteEngine};
 use crate::{
-    interfaces::{SimArbResultBatch, StoredArbsRanges},
+    interfaces::{
+        BackrunResult, PoolVariant, SimArbResult, SimArbResultBatch, StoredArbsRanges, TokenPair,
+        UserTradeParams,
+    },
     Result,
 };
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use ethers::{
-    types::{H256, U256},
-    utils::{format_ether, parse_ether},
+    abi::AbiEncode,
+    types::{Address, H256, I256, U256},
+    utils::{format_ether, hex::ToHex, parse_ether},
 };
 use futures::future::join_all;
 use mev_share_sse::{EventHistory, Hint};
@@ -63,7 +67,10 @@ fn where_filter(filter: &ArbFilterParams) -> String {
         } else {
             token_pair.weth
         };
-        params.push(format!("token_0 = '{}' AND token_1 = '{}'", token0, token1));
+        params.push(format!(
+            "token_0 = '{:?}' AND token_1 = '{:?}'",
+            token0, token1
+        ));
     }
     params.join(" AND ")
 }
@@ -163,9 +170,8 @@ impl ArbDb for PostgresConnect {
                 let arb = arb.clone();
 
                 let trade = &arb.results[0].user_trade;
-                // let is_token0_weth = ;
-                let token0 = if trade.token_in < trade.token_out { trade.token_in } else { trade.token_out };
-                let token1 = if trade.token_in > trade.token_out { trade.token_in } else { trade.token_out };
+                let token0 = if trade.tokens.token < trade.tokens.weth { trade.tokens.token } else { trade.tokens.weth };
+                let token1 = if trade.tokens.token > trade.tokens.weth { trade.tokens.token } else { trade.tokens.weth };
 
                 tokio::task::spawn(async move {
                     client
@@ -180,8 +186,8 @@ impl ArbDb for PostgresConnect {
                         &max_profit,
                         &(arb.event.block as i32),
                         &timestamp,
-                        &token0.to_string(),
-                        &token1.to_string()
+                        &format!("{:?}", token0),
+                        &format!("{:?}", token1),
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
@@ -209,22 +215,59 @@ impl ArbDb for PostgresConnect {
         let rows = self.client.query(&query, &[]).await?;
         let arbs = rows
             .into_iter()
-            .map(|row| SimArbResultBatch {
-                event: EventHistory {
-                    // TODO: change this once the rest of the fields are added to postgres
-                    block: row.get::<_, i32>(2) as u64,
-                    timestamp: row.get::<_, NaiveDateTime>(3).timestamp() as u64,
-                    hint: Hint {
-                        txs: vec![],
-                        hash: H256::from_str(&row.get::<_, String>(0)).unwrap(),
-                        logs: vec![],
-                        gas_used: None,
-                        mev_gas_price: None,
+            .map(|row| {
+                let token0 = row
+                    .get::<_, String>(4)
+                    .parse::<Address>()
+                    .expect("invalid token address");
+                let token1 = row
+                    .get::<_, String>(5)
+                    .parse::<Address>()
+                    .expect("invalid token address");
+                SimArbResultBatch {
+                    event: EventHistory {
+                        // TODO: change this once the rest of the fields are added to postgres
+                        block: row.get::<_, i32>(2) as u64,
+                        timestamp: row.get::<_, NaiveDateTime>(3).timestamp() as u64,
+                        hint: Hint {
+                            txs: vec![],
+                            hash: H256::from_str(&row.get::<_, String>(0)).unwrap(),
+                            logs: vec![],
+                            gas_used: None,
+                            mev_gas_price: None,
+                        },
                     },
-                },
-                max_profit: parse_ether(row.get::<_, Decimal>(1).to_string())
-                    .unwrap_or(U256::zero()),
-                results: vec![],
+                    max_profit: parse_ether(row.get::<_, Decimal>(1).to_string())
+                        .unwrap_or(U256::zero()),
+                    results: vec![SimArbResult {
+                        user_trade: UserTradeParams {
+                            pool_variant: PoolVariant::UniswapV2,
+                            // TODO: support tokenIn/Out instead of token0/1
+                            token_in: Address::zero(),
+                            token_out: Address::zero(),
+                            amount0_sent: I256::zero(),
+                            amount1_sent: I256::zero(),
+                            token0_is_weth: false,
+                            pool: Address::zero(),
+                            price: U256::zero(),
+                            tokens: TokenPair {
+                                token: token0,
+                                weth: token1,
+                            },
+                            arb_pools: vec![],
+                        },
+                        backrun_trade: BackrunResult {
+                            // TODO: fill with real data once it's added to the postgres table schema
+                            amount_in: U256::from(0),
+                            balance_end: U256::from(1),
+                            profit: U256::from(1),
+                            start_pool: Address::zero(),
+                            end_pool: Address::zero(),
+                            start_variant: PoolVariant::UniswapV2,
+                            end_variant: PoolVariant::UniswapV2,
+                        },
+                    }],
+                }
             })
             .collect::<Vec<_>>();
         Ok(arbs)
@@ -245,8 +288,10 @@ impl ArbDb for PostgresConnect {
 
 #[cfg(test)]
 mod tests {
+    use ethers::types::H160;
+
     use super::*;
-    use crate::config::Config;
+    use crate::{config::Config, interfaces::TokenPair};
 
     #[tokio::test]
     async fn it_connects_postgres() -> Result<()> {
@@ -269,36 +314,61 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn it_writes_arbs_postgres() -> Result<()> {
+    async fn get_db() -> Result<PostgresConnect> {
         let config = Config::default();
-        if config.postgres_url.is_none() {
-            println!("no postgres url, skipping test");
-            return Ok(());
-        }
-        let connect = PostgresConnect::new(PostgresConfig {
+        PostgresConnect::new(PostgresConfig {
             url: config.postgres_url.unwrap(),
         })
-        .await?;
+        .await
+    }
 
-        let res = connect
+    #[tokio::test]
+    async fn it_writes_arbs_postgres() -> Result<()> {
+        let db = get_db().await?;
+        let res = db
             .write_arbs(&vec![SimArbResultBatch::test_example()])
             .await;
         assert!(res.is_ok());
 
-        let res = connect
-            .read_arbs(&ArbFilterParams::none(), None, None)
-            .await?;
+        let res = db.read_arbs(&ArbFilterParams::none(), None, None).await?;
         assert!(res.len() > 0);
         Ok(())
     }
 
-    // #[tokio::test]
-    // async fn it_reads_from_db() -> Result<()> {
-    //     let config = Config::default();
-    //     let connect = PostgresConnect::new(config.postgres_url).await?;
-    //     let arbs = connect.read_arbs(ArbFilterParams::default()).await?;
-    //     println!("arbs: {:?}", arbs);
-    //     Ok(())
-    // }
+    #[tokio::test]
+    async fn it_reads_from_db() -> Result<()> {
+        let db = get_db().await?;
+        let res = db
+            .write_arbs(&vec![SimArbResultBatch::test_example()])
+            .await;
+        assert!(res.is_ok());
+        let token_pair = TokenPair {
+            token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+                .to_lowercase()
+                .parse::<H160>()
+                .unwrap(),
+            weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                .to_lowercase()
+                .parse::<H160>()
+                .unwrap(),
+        };
+        let arbs = db
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: None,
+                    block_end: None,
+                    timestamp_start: None,
+                    timestamp_end: None,
+                    min_profit: None,
+                    token_pair: Some(token_pair.to_owned()),
+                },
+                None,
+                Some(1),
+            )
+            .await?;
+        println!("arbs (it_reads_from_db): {:?}", arbs);
+        assert!(arbs.len() == 1);
+        assert!(arbs[0].results[0].user_trade.tokens.token == token_pair.token);
+        Ok(())
+    }
 }

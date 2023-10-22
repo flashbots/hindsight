@@ -253,8 +253,8 @@ mod test {
         let connect = connect().await?;
         let arbs = connect
             .read_arbs(&ArbFilterParams::default(), None, None)
-            .await?;
-        println!("arbs: {:?}", arbs);
+            .await;
+        assert!(arbs.is_ok());
         Ok(())
     }
 
