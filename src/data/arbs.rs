@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use super::db::DbEngine;
 use crate::{
     data::{db::Db, file::FileWriter},
-    info,
+    debug, info,
     interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
     Result,
 };
@@ -111,19 +111,24 @@ pub async fn export_arbs_core(
             if arbs.len() == 0 {
                 break;
             }
+            let mut start_timestamp = 1;
+            let mut start_block = 1;
+            if *offset == 0 {
+                start_timestamp = arbs
+                    .iter()
+                    .map(|arb| arb.event.timestamp)
+                    .min()
+                    .unwrap_or(0);
+                start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+            }
             *offset = *offset + NUM_ARBS_PER_READ as u64;
-            println!("offset {}", offset);
-            let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+            debug!("offset {}", offset);
             let end_block = arbs
                 .iter()
                 .map(|arb| arb.event.block)
                 .max()
                 .unwrap_or(u64::MAX);
-            let start_timestamp = arbs
-                .iter()
-                .map(|arb| arb.event.timestamp)
-                .min()
-                .unwrap_or(0);
+
             let end_timestamp = arbs
                 .iter()
                 .map(|arb| arb.event.timestamp)
@@ -140,9 +145,9 @@ pub async fn export_arbs_core(
             );
 
             for arb in arbs {
-                println!("im arb: {:?}", arb.event.hint.hash);
+                println!("pushing arb (event hash: {:?})", arb.event.hint.hash);
                 arb_queue.push(arb);
-                println!("arb q: len {}", arb_queue.len());
+                debug!("arb queue len: {}", arb_queue.len());
             }
             // arb_lock is dropped here, unlocking the arb_queue mutex
         }

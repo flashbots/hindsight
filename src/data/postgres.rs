@@ -52,14 +52,30 @@ fn where_filter(filter: &ArbFilterParams) -> String {
     if let Some(min_profit) = filter.min_profit {
         params.push(format!("profit__eth__ >= {}", format_ether(min_profit)));
     }
+    if let Some(token_pair) = &filter.token_pair {
+        let token0 = if token_pair.token < token_pair.weth {
+            token_pair.token
+        } else {
+            token_pair.weth
+        };
+        let token1 = if token_pair.token > token_pair.weth {
+            token_pair.token
+        } else {
+            token_pair.weth
+        };
+        params.push(format!("token_0 = '{}' AND token_1 = '{}'", token0, token1));
+    }
     params.join(" AND ")
 }
 
 fn select_arbs_query(filter: &ArbFilterParams, limit: Option<i64>, offset: Option<u64>) -> String {
     let mut query = "SELECT * FROM ".to_string();
+    let where_clause = where_filter(filter);
     query.push_str(ARBS_TABLE);
-    query.push_str(" WHERE ");
-    query.push_str(&where_filter(filter));
+    if where_clause.len() > 0 {
+        query.push_str(" WHERE ");
+        query.push_str(&where_clause);
+    }
     query.push_str(" ORDER BY event_timestamp");
     if let Some(limit) = limit {
         query.push_str(&format!(" LIMIT {}", limit));
@@ -67,14 +83,18 @@ fn select_arbs_query(filter: &ArbFilterParams, limit: Option<i64>, offset: Optio
     if let Some(offset) = offset {
         query.push_str(&format!(" OFFSET {}", offset));
     }
+    println!("query: {}", query);
     query
 }
 
 fn count_arbs_query(filter: &ArbFilterParams) -> String {
     let mut query = "SELECT COUNT(*) FROM ".to_string();
     query.push_str(ARBS_TABLE);
-    query.push_str(" WHERE ");
-    query.push_str(&where_filter(filter));
+    let where_clause = where_filter(filter);
+    if where_clause.len() > 0 {
+        query.push_str(" WHERE ");
+        query.push_str(&where_clause);
+    }
     query
 }
 
@@ -96,7 +116,7 @@ impl PostgresConnect {
             }
         });
 
-        // create arbs table pessimistically (simplified version for now: {hash, profit})
+        // create arbs table pessimistically (simplified version for now)
         client
             .execute(
                 &format!(
@@ -104,7 +124,9 @@ impl PostgresConnect {
                         tx_hash VARCHAR(66) NOT NULL PRIMARY KEY,
                         profit__eth__ NUMERIC,
                         event_block INTEGER NOT NULL,
-                        event_timestamp TIMESTAMP NOT NULL
+                        event_timestamp TIMESTAMP NOT NULL,
+                        token_0 VARCHAR(42),
+                        token_1 VARCHAR(42)
                     )",
                     ARBS_TABLE
                 ),
@@ -140,11 +162,16 @@ impl ArbDb for PostgresConnect {
                 let client = self.client.clone();
                 let arb = arb.clone();
 
+                let trade = &arb.results[0].user_trade;
+                // let is_token0_weth = ;
+                let token0 = if trade.token_in < trade.token_out { trade.token_in } else { trade.token_out };
+                let token1 = if trade.token_in > trade.token_out { trade.token_in } else { trade.token_out };
+
                 tokio::task::spawn(async move {
                     client
                 .execute(
-                    &format!("INSERT INTO {} (tx_hash, profit__eth__, event_block, event_timestamp)
-                        VALUES ($1, $2, $3, $4)
+                    &format!("INSERT INTO {} (tx_hash, profit__eth__, event_block, event_timestamp, token_0, token_1)
+                        VALUES ($1, $2, $3, $4, $5, $6)
                         ON CONFLICT (tx_hash) DO UPDATE SET profit__eth__ = $2",
                         ARBS_TABLE
                     ),
@@ -153,6 +180,8 @@ impl ArbDb for PostgresConnect {
                         &max_profit,
                         &(arb.event.block as i32),
                         &timestamp,
+                        &token0.to_string(),
+                        &token1.to_string()
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
@@ -183,8 +212,8 @@ impl ArbDb for PostgresConnect {
             .map(|row| SimArbResultBatch {
                 event: EventHistory {
                     // TODO: change this once the rest of the fields are added to postgres
-                    block: row.get::<usize, u32>(2) as u64,
-                    timestamp: row.get::<usize, u32>(3) as u64,
+                    block: row.get::<_, i32>(2) as u64,
+                    timestamp: row.get::<_, NaiveDateTime>(3).timestamp() as u64,
                     hint: Hint {
                         txs: vec![],
                         hash: H256::from_str(&row.get::<_, String>(0)).unwrap(),
@@ -193,7 +222,7 @@ impl ArbDb for PostgresConnect {
                         mev_gas_price: None,
                     },
                 },
-                max_profit: parse_ether(row.get::<usize, f64>(1).to_string())
+                max_profit: parse_ether(row.get::<_, Decimal>(1).to_string())
                     .unwrap_or(U256::zero()),
                 results: vec![],
             })
@@ -240,13 +269,6 @@ mod tests {
         Ok(())
     }
 
-    /// sends a test arb to the db
-    async fn inject_test_arb(connect: &PostgresConnect) -> Result<()> {
-        let arbs = vec![SimArbResultBatch::test_example()];
-        connect.write_arbs(&arbs).await?;
-        Ok(())
-    }
-
     #[tokio::test]
     async fn it_writes_arbs_postgres() -> Result<()> {
         let config = Config::default();
@@ -258,12 +280,15 @@ mod tests {
             url: config.postgres_url.unwrap(),
         })
         .await?;
-        inject_test_arb(&connect).await?;
+
         let res = connect
-            .client
-            .query(&format!("SELECT * FROM {}", ARBS_TABLE), &[])
-            .await
-            .expect("failed to read arbs from postgres");
+            .write_arbs(&vec![SimArbResultBatch::test_example()])
+            .await;
+        assert!(res.is_ok());
+
+        let res = connect
+            .read_arbs(&ArbFilterParams::none(), None, None)
+            .await?;
         assert!(res.len() > 0);
         Ok(())
     }
