@@ -1,7 +1,7 @@
 use crate::Result;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
-const FLASHBOTS_EVENTS_API_URL: &'static str = "https://mev-share.flashbots.net/api/v1";
+const FLASHBOTS_EVENTS_API_URL: &str = "https://mev-share.flashbots.net/api/v1";
 
 pub fn event_history_info_url() -> String {
     format!("{}/{}", FLASHBOTS_EVENTS_API_URL, "history/info")

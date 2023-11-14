@@ -35,12 +35,12 @@ pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<F
     let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
 
     let state_diffs =
-        if let Some(sd) = state_diff::get_from_txs(&client, &vec![], fork_block_num).await {
+        if let Some(sd) = state_diff::get_from_txs(client, &vec![], fork_block_num).await {
             sd
         } else {
             BTreeMap::<H160, AccountDiff>::new()
         };
-    let initial_db = state_diff::to_cache_db(&state_diffs, fork_block, &client).await?;
+    let initial_db = state_diff::to_cache_db(&state_diffs, fork_block, client).await?;
     let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), initial_db, fork_block);
     attach_braindance_module(&mut fork_factory);
 
@@ -63,8 +63,7 @@ async fn derive_trade_params(
         H256::from_str("0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67")?;
     let sync_topic =
         H256::from_str("0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1")?;
-    let uniswap_topics = vec![
-        // univ3
+    let uniswap_topics = [
         H256::from_str("0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67")?,
         // univ2
         // Swap(address,uint256,uint256,uint256,uint256,address)
@@ -199,6 +198,7 @@ async fn derive_trade_params(
 
 /// Recursively finds the best possible arbitrage trade for a given set of params.
 #[async_recursion]
+#[allow(clippy::too_many_arguments)]
 async fn step_arb(
     client: WsClient,
     user_tx: Transaction,
@@ -227,13 +227,13 @@ async fn step_arb(
         best_amount_in_out.unwrap_or((0.into(), braindance_starting_balance()));
 
     // convenience closures for stop cases
-    let done_unprofitable = || return Ok((0.into(), braindance_starting_balance()));
-    let done_profitable = || return Ok((best_amount_in, best_amount_out));
+    let done_unprofitable = || Ok((0.into(), braindance_starting_balance()));
+    let done_profitable = || Ok((best_amount_in, best_amount_out));
 
     /*  ============================================================
     ======================== STOP CASES ============================
     ============================================================  */
-    if params.arb_pools.len() == 0 {
+    if params.arb_pools.is_empty() {
         // returning an error here will halt the whole sim branch
         return Err(HindsightError::PoolNotFound(params.pool).into());
     }
@@ -358,8 +358,8 @@ async fn step_arb(
         } else {
             best_amount_in - band_width
         },
-        if U256::MAX - r_amount < band_width.into() {
-            U256::MAX.into()
+        if U256::MAX - r_amount < band_width {
+            U256::MAX
         } else {
             best_amount_in + band_width
         },
@@ -423,11 +423,11 @@ pub async fn find_optimal_backrun_amount_in_out(
     which leaves us with only the profitable sims.
     */
     for params in params {
-        if params.arb_pools.len() == 0 {
+        if params.arb_pools.is_empty() {
             debug!("skipping this set of params, no arb pools found.");
             continue;
         }
-        for other_pool in params.arb_pools.to_owned() {
+        for other_pool in params.arb_pools.iter().copied() {
             let client = client.clone();
             let user_tx = user_tx.clone();
             let block_info = block_info.clone();
@@ -447,10 +447,12 @@ pub async fn find_optimal_backrun_amount_in_out(
                         &mut evm,
                     )
                     .await
-                    .expect(&format!(
-                        "sim_price_v2 panicked. address={:?} token_in={:?} token_out={:?}",
-                        other_pool.address, params.token_in, params.token_out
-                    )),
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "sim_price_v2 panicked. address={:?} token_in={:?} token_out={:?}",
+                            other_pool.address, params.token_in, params.token_out
+                        )
+                    }),
                     PoolVariant::UniswapV3 => sim_price_v3(
                         other_pool.address,
                         params.token_in,
@@ -458,10 +460,12 @@ pub async fn find_optimal_backrun_amount_in_out(
                         &mut evm,
                     )
                     .await
-                    .expect(&format!(
-                        "sim_price_v3 panicked. address={:?} token_in={:?} token_out={:?}",
-                        other_pool.address, params.token_in, params.token_out
-                    )),
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "sim_price_v3 panicked. address={:?} token_in={:?} token_out={:?}",
+                            other_pool.address, params.token_in, params.token_out
+                        )
+                    }),
                 };
                 debug!("alt price {:?}", alt_price);
 
@@ -531,8 +535,8 @@ pub async fn find_optimal_backrun_amount_in_out(
                             } else {
                                 0.into()
                             },
-                            start_pool: start_pool,
-                            end_pool: end_pool,
+                            start_pool,
+                            end_pool,
                             start_variant: start_pool_variant,
                             end_variant: end_pool_variant,
                         },
@@ -549,10 +553,8 @@ pub async fn find_optimal_backrun_amount_in_out(
     let results: Vec<_> = future::join_all(pool_handles).await;
     Ok(results
         .into_iter()
-        .filter(|res| res.is_ok())
-        .map(|res| res.unwrap())
-        .filter(|res| res.is_some())
-        .map(|res| res.to_owned().unwrap())
+        .filter_map(|res| res.ok())
+        .filter_map(|res| res.to_owned())
         .collect::<Vec<_>>())
 }
 
@@ -618,8 +620,8 @@ mod test {
     use ethers::providers::Middleware;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-        let block_info = get_block_info(&client, block_num).await?;
-        fork_evm(&client, &block_info).await
+        let block_info = get_block_info(client, block_num).await?;
+        fork_evm(client, &block_info).await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

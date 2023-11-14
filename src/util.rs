@@ -28,7 +28,7 @@ pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {
     Ok(Arc::new(provider))
 }
 
-pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<Vec<Transaction>> {
+pub async fn fetch_txs(client: &WsClient, events: &[EventHistory]) -> Result<Vec<Transaction>> {
     let tx_hashes: Vec<H256> = events.iter().map(|e: &EventHistory| e.hint.hash).collect();
     let mut handles = vec![];
 
@@ -39,7 +39,7 @@ pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<
             if let Ok(tx) = tx {
                 if let Some(tx) = tx {
                     info!("tx found onchain\t{:?}", tx_hash.to_owned());
-                    return Some(tx.clone());
+                    Some(tx.clone())
                 } else {
                     info!("tx not found onchain\t{:?}", tx_hash.to_owned());
                     None
@@ -53,10 +53,8 @@ pub async fn fetch_txs(client: &WsClient, events: &Vec<EventHistory>) -> Result<
     let results = future::join_all(handles)
         .await
         .into_iter()
-        .filter(|r| r.is_ok())
-        .map(|r| r.unwrap())
-        .filter(|r| r.is_some())
-        .map(|r| r.unwrap())
+        .filter_map(|r| r.ok())
+        .flatten()
         .collect::<Vec<_>>();
     Ok(results)
 }
@@ -206,11 +204,11 @@ pub async fn get_balance_call(
 }
 
 pub fn filter_events_by_topic(
-    events: &Vec<EventHistory>,
-    filter_topics: &Vec<H256>,
+    events: &[EventHistory],
+    filter_topics: &[H256],
 ) -> Vec<EventHistory> {
     events
-        .into_iter()
+        .iter()
         .filter(|event| {
             event
                 .hint
