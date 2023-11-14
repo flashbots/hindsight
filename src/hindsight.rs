@@ -17,7 +17,6 @@ pub struct Hindsight {
 
 impl Hindsight {
     pub async fn new(ws_client: WsClient) -> Result<Self> {
-        // let client = get_ws_client(Some(rpc_url_ws), max_reconnects).await?;
         Ok(Self { client: ws_client })
     }
 
@@ -53,14 +52,12 @@ impl Hindsight {
             }
             let results = future::join_all(handlers).await;
             let results = results
-                // TODO: can this be cleaned up? so ugly
                 .into_iter()
                 .filter_map(|res| res.ok())
                 .flatten()
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
             if let Some(db) = db.to_owned() {
-                // can't do && with a `let` in the conditional
                 if !results.is_empty() {
                     db.to_owned().write_arbs(&results).await?;
                 }
