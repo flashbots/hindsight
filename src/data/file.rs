@@ -20,7 +20,7 @@ fn parse_filename(filename: Option<String>) -> Result<String> {
             .as_secs()
     ));
     Ok(if filename.ends_with(".json") {
-        filename.to_owned()
+        filename
     } else {
         format!("{}.json", filename)
     })

@@ -25,7 +25,7 @@ impl DbEngine {
             .map(|engine| engine.to_string())
             .reduce(|a, b| format!("{} | {}", a, b))
             .expect("failed to reduce db engines to string")
-            .to_string()
+            
     }
 }
 
