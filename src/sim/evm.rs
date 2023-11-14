@@ -21,6 +21,7 @@ use std::{ops::Mul, str::FromStr};
 /// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.
 ///
 /// Returns balance of token_out after tx is executed.
+#[allow(clippy::too_many_arguments)]
 pub fn commit_braindance_swap(
     evm: &mut EVM<ForkDB>,
     pool_variant: PoolVariant,
@@ -113,7 +114,7 @@ pub async fn sim_price_v3(
     let sqrt_price = slot0_tokens[0].clone().into_uint().expect("sqrt_price");
 
     let output = call_function(evm, "0x1a686502", target_pool)?; // liquidity()
-    let liquidity_tokens = abi::decode(&vec![ParamType::Uint(128)], &output)?;
+    let liquidity_tokens = abi::decode(&[ParamType::Uint(128)], &output)?;
     let liquidity = liquidity_tokens[0].clone().into_uint().expect("liquidity");
 
     let token0 = match input_token < output_token {
@@ -121,7 +122,7 @@ pub async fn sim_price_v3(
         false => output_token,
     };
     let output = call_function(evm, "0x313ce567", token0)?; // decimals()
-    let token0_decimals_tokens = abi::decode(&vec![ParamType::Uint(8)], &output)?;
+    let token0_decimals_tokens = abi::decode(&[ParamType::Uint(8)], &output)?;
     let token0_decimals = token0_decimals_tokens[0]
         .clone()
         .into_uint()
@@ -163,7 +164,7 @@ pub async fn sim_price_v2(
     };
 
     let tokens = abi::decode(
-        &vec![
+        &[
             ParamType::Uint(128),
             ParamType::Uint(128),
             ParamType::Uint(32),
@@ -191,13 +192,13 @@ pub async fn sim_price_v2(
         false => output_token,
     };
     let output = call_function(evm, "0x313ce567", token0)?; // decimals()
-    let token0_decimals_tokens = abi::decode(&vec![ParamType::Uint(8)], &output)?;
+    let token0_decimals_tokens = abi::decode(&[ParamType::Uint(8)], &output)?;
     let token0_decimals = token0_decimals_tokens[0]
         .clone()
         .into_uint()
         .ok_or::<Error>(HindsightError::CallError("token decimals not found".to_owned()).into())?;
 
-    Ok(reserves_1
+    reserves_1
         .mul(U256::from(10).pow(token0_decimals))
         .checked_div(reserves_0)
         .ok_or::<Error>(
@@ -206,7 +207,7 @@ pub async fn sim_price_v2(
                 reserves_0, reserves_1
             ))
             .into(),
-        )?)
+        )
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
@@ -215,7 +216,7 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
         from: Some(get_eth_dev()),
         to: Some(contract.into()),
         gas: Some(U256::from(900_000_u64)),
-        gas_price: Some(U256::from(1000_000_000_000_u64)),
+        gas_price: Some(U256::from(1_000_000_000_000_u64)),
         value: None,
         data: Some(Bytes::from_str(method)?),
         nonce: None,
@@ -320,13 +321,13 @@ pub async fn sim_bundle(
 pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
     inject_tx(evm, &tx)?;
     let res = evm.transact_commit();
-    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
+    res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))
 }
 
 pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAndState> {
     inject_tx(evm, &tx)?;
     let res = evm.transact();
-    Ok(res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))?)
+    res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))
 }
 
 #[cfg(test)]

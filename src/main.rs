@@ -117,12 +117,10 @@ async fn main() -> anyhow::Result<()> {
             // if filename & write_db are both None, use file exporter & default filename
             let write_dest = if filename.is_some() {
                 WriteEngine::File(filename)
+            } else if let Some(write_db) = write_db {
+                WriteEngine::Db(write_db)
             } else {
-                if let Some(write_db) = write_db {
-                    WriteEngine::Db(write_db)
-                } else {
-                    WriteEngine::File(None)
-                }
+                WriteEngine::File(None)
             };
 
             commands::export::run(

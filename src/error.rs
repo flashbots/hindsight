@@ -19,9 +19,9 @@ pub enum HindsightError {
     EvmParseError(String),
 }
 
-impl Into<Error> for HindsightError {
-    fn into(self) -> Error {
-        match self {
+impl From<HindsightError> for Error {
+    fn from(val: HindsightError) -> Self {
+        match val {
             HindsightError::BlockNotFound(block_number) => {
                 anyhow::format_err!("block not found (number={})", block_number)
             }

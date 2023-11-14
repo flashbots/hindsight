@@ -55,10 +55,8 @@ impl Hindsight {
             let results = results
                 // TODO: can this be cleaned up? so ugly
                 .into_iter()
-                .filter(|res| res.is_ok())
-                .map(|res| res.unwrap())
-                .filter(|res| res.is_some())
-                .map(|res| res.unwrap())
+                .filter_map(|res| res.ok())
+                .flatten()
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
             if let Some(db) = db.to_owned() {
@@ -135,7 +133,7 @@ mod tests {
             .get_transaction(juicy_tx_hash)
             .await?
             .expect("failed to find juicy tx on chain");
-        let event_map = vec![juicy_event]
+        let event_map = [juicy_event]
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
             .collect::<H256Map<EventHistory>>();
