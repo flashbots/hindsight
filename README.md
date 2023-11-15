@@ -278,6 +278,7 @@ If that doesn't work, try double-checking your URLs. Refer back to the [environm
 - [rusty-sando](https://github.com/mouseless-eth/rusty-sando)
 - [mev-inspect-rs](https://github.com/flashbots/mev-inspect-rs)
 - [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
+- [nitepunk](https://soundcloud.com/nitepunk/sets/slices)
 
 ## future improvements
 

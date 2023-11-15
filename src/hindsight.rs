@@ -2,7 +2,7 @@ use crate::{
     data::arbs::ArbDatabase,
     info,
     sim::processor::{simulate_backrun_arbs, H256Map},
-    util::{get_ws_client, WsClient},
+    util::WsClient,
     Result,
 };
 use ethers::types::Transaction;
@@ -16,9 +16,8 @@ pub struct Hindsight {
 }
 
 impl Hindsight {
-    pub async fn new(rpc_url_ws: String) -> Result<Self> {
-        let client = get_ws_client(Some(rpc_url_ws)).await?;
-        Ok(Self { client })
+    pub async fn new(ws_client: WsClient) -> Result<Self> {
+        Ok(Self { client: ws_client })
     }
 
     /// For each tx in `txs`, simulates an optimal backrun-arbitrage in a parallel thread,
@@ -53,14 +52,12 @@ impl Hindsight {
             }
             let results = future::join_all(handlers).await;
             let results = results
-                // TODO: can this be cleaned up? so ugly
                 .into_iter()
                 .filter_map(|res| res.ok())
                 .flatten()
                 .collect::<Vec<_>>();
             info!("batch results: {:#?}", results);
             if let Some(db) = db.to_owned() {
-                // can't do && with a `let` in the conditional
                 if !results.is_empty() {
                     db.to_owned().write_arbs(&results).await?;
                 }
@@ -76,20 +73,20 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        config::Config,
         data::{
             arbs::ArbFilterParams,
             db::{Db, DbEngine},
             MongoConfig,
         },
+        util::get_ws_client,
     };
 
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_processes_orderflow() -> Result<()> {
-        let config = Config::default();
-        let hindsight = Hindsight::new(config.rpc_url_ws).await?;
+        let client = get_ws_client(None, 1).await?;
+        let hindsight = Hindsight::new(client).await?;
 
         // data from an actual juicy event
         let juicy_event: EventHistory = serde_json::from_value(json!({
@@ -128,7 +125,7 @@ mod tests {
         }))?;
         let juicy_tx_hash: H256 =
             "0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a".parse::<H256>()?;
-        let juicy_tx = get_ws_client(None)
+        let juicy_tx = get_ws_client(None, 1)
             .await?
             .get_transaction(juicy_tx_hash)
             .await?

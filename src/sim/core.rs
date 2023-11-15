@@ -364,7 +364,7 @@ async fn step_arb(
             best_amount_in + band_width
         },
     ];
-    return step_arb(
+    step_arb(
         client,
         user_tx,
         block_info,
@@ -376,7 +376,7 @@ async fn step_arb(
         start_pair_variant,
         end_pair_variant,
     )
-    .await;
+    .await
 }
 
 /// Find the optimal backrun for a given tx.
@@ -554,7 +554,7 @@ pub async fn find_optimal_backrun_amount_in_out(
     Ok(results
         .into_iter()
         .filter_map(|res| res.ok())
-        .filter_map(|res| res.to_owned())
+        .flatten()
         .collect::<Vec<_>>())
 }
 

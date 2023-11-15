@@ -55,7 +55,7 @@ pub fn commit_braindance_swap(
         Ok(res) => res,
         Err(e) => return Err(anyhow::anyhow!("failed to commit swap: {:?}", e)),
     };
-    let output = match res.to_owned() {
+    let output = match res {
         ExecutionResult::Success { output, .. } => match output {
             Output::Call(o) => o,
             Output::Create(o, _) => o,

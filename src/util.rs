@@ -18,13 +18,13 @@ use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 pub type WsClient = Arc<Provider<Ws>>;
 
-pub async fn get_ws_client(rpc_url: Option<String>) -> Result<WsClient> {
+pub async fn get_ws_client(rpc_url: Option<String>, max_reconnects: usize) -> Result<WsClient> {
     let rpc_url = if let Some(rpc_url) = rpc_url {
         rpc_url
     } else {
         Config::default().rpc_url_ws
     };
-    let provider = Provider::<Ws>::connect(rpc_url).await?;
+    let provider = Provider::<Ws>::connect_with_reconnects(rpc_url, max_reconnects).await?;
     Ok(Arc::new(provider))
 }
 
@@ -233,7 +233,7 @@ pub mod test {
     use crate::Result;
 
     pub async fn get_test_ws_client() -> Result<WsClient> {
-        let ws_client = get_ws_client(None).await?;
+        let ws_client = get_ws_client(None, 1).await?;
         Ok(ws_client)
     }
 }

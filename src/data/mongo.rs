@@ -204,7 +204,6 @@ impl ArbDb for MongoConnect {
     }
 }
 
-// TODO: move these, generalize connect to test both dbs
 #[cfg(test)]
 mod test {
     use super::*;
