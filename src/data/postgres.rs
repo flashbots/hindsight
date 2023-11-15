@@ -18,7 +18,7 @@ use rust_decimal::prelude::*;
 use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
 
-const ARBS_TABLE: &'static str = "hindsight";
+const ARBS_TABLE: &str = "hindsight";
 
 pub struct PostgresConnect {
     client: Arc<Client>,
@@ -148,7 +148,7 @@ impl PostgresConnect {
 
 #[async_trait]
 impl ArbDb for PostgresConnect {
-    async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()> {
+    async fn write_arbs(&self, arbs: &[SimArbResultBatch]) -> Result<()> {
         let handles = arbs
             .iter()
             .map(|arb| {
@@ -159,11 +159,7 @@ impl ArbDb for PostgresConnect {
                     NaiveDateTime::from_timestamp_millis(arb.event.timestamp as i64 * 1000)
                         .expect("failed to parse timestamp");
 
-                println!(
-                    "writing arb to postgres: {} {} eth",
-                    txhash.to_string(),
-                    max_profit
-                );
+                println!("writing arb to postgres: {} {} eth", txhash, max_profit);
                 // clone these to give to the tokio thread
                 let client = self.client.clone();
                 let arb = arb.clone();

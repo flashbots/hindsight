@@ -21,13 +21,11 @@ pub enum DbEngine {
 
 impl DbEngine {
     pub fn enum_flags() -> String {
-        format!(
-            "{}",
-            DbEngine::iter()
-                .map(|engine| engine.to_string())
-                .reduce(|a, b| format!("{} | {}", a, b))
-                .expect("failed to reduce db engines to string")
-        )
+        DbEngine::iter()
+            .map(|engine| engine.to_string())
+            .reduce(|a, b| format!("{} | {}", a, b))
+            .expect("failed to reduce db engines to string")
+            
     }
 }
 
@@ -61,20 +59,22 @@ impl std::str::FromStr for DbEngine {
 impl Db {
     pub async fn new(engine: DbEngine) -> Self {
         match engine {
-            DbEngine::Mongo(config) => Db {
-                connect: Arc::new(
-                    MongoConnect::new(config.to_owned())
-                        .await
-                        .expect(&format!("failed to connect to mongo db at {}", config.url)),
-                ),
-            },
-            DbEngine::Postgres(config) => {
+            DbEngine::Mongo(config) => {
                 Db {
-                    connect: Arc::new(PostgresConnect::new(config.to_owned()).await.expect(
-                        &format!("failed to connect to postgres db at {:?}", config.url),
+                    connect: Arc::new(MongoConnect::new(config.to_owned()).await.unwrap_or_else(
+                        |_| panic!("failed to connect to mongo db at {}", config.url),
                     )),
                 }
             }
+            DbEngine::Postgres(config) => Db {
+                connect: Arc::new(
+                    PostgresConnect::new(config.to_owned())
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!("failed to connect to postgres db at {:?}", config.url)
+                        }),
+                ),
+            },
         }
     }
 }

@@ -20,13 +20,13 @@ pub struct ScanOptions {
     pub db_engine: DbEngine,
 }
 
-impl Into<EventHistoryParams> for ScanOptions {
-    fn into(self) -> EventHistoryParams {
+impl From<ScanOptions> for EventHistoryParams {
+    fn from(val: ScanOptions) -> Self {
         EventHistoryParams {
-            block_start: Some(self.block_start.into()),
-            block_end: self.block_end.map(|x| x.into()),
-            timestamp_start: Some(self.timestamp_start.into()),
-            timestamp_end: self.timestamp_end.map(|x| x.into()),
+            block_start: Some(val.block_start.into()),
+            block_end: val.block_end.map(|x| x.into()),
+            timestamp_start: Some(val.timestamp_start.into()),
+            timestamp_end: val.timestamp_end.map(|x| x.into()),
             limit: Some(500),
             offset: Some(0),
         }
@@ -69,7 +69,7 @@ pub async fn run(
             .await?;
         // if the api returns 0 results, we've completely run out of events to process
         // so wait, then restart loop
-        if events.len() == 0 {
+        if events.is_empty() {
             // sleep 12s to allow for new events to be indexed
             std::thread::sleep(std::time::Duration::from_secs(12));
             continue;
@@ -109,7 +109,7 @@ pub async fn run(
                 .collect::<Vec<EventHistory>>();
             events_offset += this_batch.len();
             // get txs for relevant events
-            txs.append(&mut fetch_txs(&ws_client, &this_batch).await?);
+            txs.append(&mut fetch_txs(ws_client, &this_batch).await?);
         }
 
         /* ========================== batch-sized arb processing ========================

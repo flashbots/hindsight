@@ -52,7 +52,7 @@ pub enum WriteEngine {
 
 #[async_trait]
 pub trait ArbDb: Sync + Send {
-    async fn write_arbs(&self, arbs: &Vec<SimArbResultBatch>) -> Result<()>;
+    async fn write_arbs(&self, arbs: &[SimArbResultBatch]) -> Result<()>;
     async fn read_arbs(
         &self,
         filter_params: &ArbFilterParams,
@@ -108,36 +108,35 @@ pub async fn export_arbs_core(
                 .read_arbs(&filter_params, Some(*offset), Some(NUM_ARBS_PER_READ))
                 .await
                 .expect("failed to read arbs");
-            if arbs.len() == 0 {
+            if arbs.is_empty() {
                 break;
             }
-            let mut start_timestamp = 1;
-            let mut start_block = 1;
-            if *offset == 0 {
-                start_timestamp = arbs
-                    .iter()
-                    .map(|arb| arb.event.timestamp)
-                    .min()
-                    .unwrap_or(0);
-                start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
-            }
-            *offset = *offset + NUM_ARBS_PER_READ as u64;
-            debug!("offset {}", offset);
-            let end_block = arbs
-                .iter()
-                .map(|arb| arb.event.block)
-                .max()
-                .unwrap_or(u64::MAX);
 
+            *offset += NUM_ARBS_PER_READ as u64;
+            println!("offset {}", offset);
+
+            let start_timestamp = arbs
+                .iter()
+                .map(|arb| arb.event.timestamp)
+                .min()
+                .unwrap_or(0);
             let end_timestamp = arbs
                 .iter()
                 .map(|arb| arb.event.timestamp)
                 .max()
                 .unwrap_or(u64::MAX);
+
             let sum_profit = arbs
                 .iter()
                 .fold(0.into(), |acc: U256, arb| acc + arb.max_profit);
             info!("SUM PROFIT: {} Ξ", format_ether(sum_profit));
+
+            let start_block = arbs.iter().map(|arb| arb.event.block).min().unwrap_or(0);
+            let end_block = arbs
+                .iter()
+                .map(|arb| arb.event.block)
+                .max()
+                .unwrap_or(u64::MAX);
             info!("(start,end) block: ({}, {})", start_block, end_block);
             info!(
                 "time range: {} days",
