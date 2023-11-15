@@ -83,7 +83,7 @@ impl MongoConnect {
         Ok(Self { arb_collection })
     }
 
-    /// Instantiates a Mongo `DbClient`. If `config.tls_ca_file_path` is None, then TLS is disabled
+    /// Connects to Mongo db provided in `config`. If `config.tls_ca_file_path` is None, then TLS is disabled.
     async fn init_db(config: MongoConfig) -> Result<Arc<Database>> {
         let mut options = ClientOptions::parse(config.url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
