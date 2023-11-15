@@ -127,7 +127,7 @@ impl MongoConnect {
         Ok(Self { arb_collection })
     }
 
-    /// if tls_ca_file_path is None, then TLS is disabled
+    /// Connects to Mongo db provided in `config`. If `config.tls_ca_file_path` is None, then TLS is disabled.
     async fn init_db(config: MongoConfig) -> Result<Arc<Database>> {
         let mut options = ClientOptions::parse(config.url).await?;
         options.app_name = Some(PROJECT_NAME.to_owned());
@@ -308,12 +308,17 @@ mod test {
     async fn it_filters_arbs() -> Result<()> {
         let connect = connect().await?;
         inject_test_arbs(&connect, 10).await?;
-        let block_first = connect.get_arb_extrema().await?.0.unwrap().event.block;
+        let (arb_first, arb_last) = connect.get_arb_extrema().await?;
+        let (arb_first, arb_last) = (arb_first.unwrap(), arb_last.unwrap());
+        let (block_first, _) = (arb_first.event.block, arb_last.event.block);
+        let (timestamp_first, _) = (arb_first.event.timestamp, arb_last.event.timestamp);
+
+        // filter by block number
         let arbs = connect
             .read_arbs(
                 &ArbFilterParams {
-                    block_start: Some(block_first as u32 + 5),
-                    block_end: Some(block_first as u32 + 9),
+                    block_start: Some(block_first as u32),
+                    block_end: Some(block_first as u32 + 5),
                     timestamp_start: None,
                     timestamp_end: None,
                     min_profit: Some(1.into()),
@@ -331,13 +336,30 @@ mod test {
                 Some(5),
             )
             .await?;
-        println!(
-            "arbs: {:?}",
-            arbs.iter().map(|arb| arb.event.block).collect::<Vec<_>>()
-        );
         assert!(!arbs.is_empty());
-        assert!(arbs.len() <= 3);
-        assert!(arbs.iter().all(|arb| arb.event.block >= block_first + 5));
+        assert!(arbs.len() <= 5);
+        assert!(arbs.iter().all(|arb| arb.event.block >= block_first));
+
+        // filter by timestamp
+        let arbs = connect
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: None,
+                    block_end: None,
+                    timestamp_start: Some(timestamp_first as u32),
+                    timestamp_end: Some(timestamp_first as u32 + 5),
+                    min_profit: Some(1.into()),
+                    token_pair: None,
+                },
+                None,
+                Some(5),
+            )
+            .await?;
+        assert!(!arbs.is_empty());
+        assert!(arbs.len() <= 5);
+        assert!(arbs
+            .iter()
+            .all(|arb| arb.event.timestamp >= timestamp_first));
 
         Ok(())
     }
