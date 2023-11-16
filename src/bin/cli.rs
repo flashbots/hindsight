@@ -13,8 +13,8 @@ use hindsight::{
 };
 use mev_share_sse::EventClient;
 use std::thread::available_parallelism;
-mod cli;
-use cli::{Cli, Commands};
+mod cli_core;
+use cli_core::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

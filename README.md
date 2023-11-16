@@ -100,13 +100,13 @@ POSTGRES_URL=postgres://postgres:adminPassword@172.17.0.1:5432
 export RPC_URL_WS=ws://127.0.0.1:8545
 export MONGO_URL=mongodb://root:example@localhost:27017
 export POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432
-cargo run -- scan
+cargo run --bin cli -- scan
 
 # alternatively, to pass the variables directly to hindsight rather than setting them in the shell
 RPC_URL_WS=ws://127.0.0.1:8545 \
 MONGO_URL=mongodb://root:example@localhost:27017 \
 POSTGRES_URL=postgres://postgres:adminPassword@localhost:5432 \
-cargo run -- scan
+cargo run --bin cli -- scan
 ```
 
 ### system dependencies
@@ -156,7 +156,7 @@ cargo build
 cargo run -- --help
 
 # or run the binary directly
-./target/debug/hindsight --help
+./target/debug/cli --help
 ```
 
 **With Docker:**
@@ -166,7 +166,7 @@ docker build -t hindsight .
 docker run -it -e RPC_URL_WS=ws://host.docker.internal:8545 -e MONGO_URL=mongodb://host.docker.internal:27017 hindsight --help
 ```
 
-> :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run -- scan --help` or `docker run -it hindsight --help` or `./target/debug/hindsight --help`.
+> :information_source: From this point on, I'll use `hindsight` to refer to whichever method you choose to run the program. So `hindsight scan --help` would translate to `cargo run --bin cli -- scan --help` or `docker run -it hindsight --help` or `./target/debug/cli --help`.
 
 ### (optional) test
 

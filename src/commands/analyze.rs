@@ -5,7 +5,7 @@ use crate::Result;
 pub async fn run(
     params: ArbFilterParams,
     read_db: &ArbDatabase,
-    write_dest: WriteEngine,
+    _write_dest: WriteEngine,
 ) -> Result<()> {
     println!("analyzing arbs... {:?}", params);
     // read arbs from DB, filtered by token pair (but one is always weth)

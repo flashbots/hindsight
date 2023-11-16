@@ -2,7 +2,7 @@ use crate::debug;
 use std::{env, path::PathBuf};
 
 #[derive(Clone, Debug)]
-pub struct Config {
+pub(super) struct Config {
     pub rpc_url_ws: String,
     pub mongo_url: String,
     pub postgres_url: Option<String>,
