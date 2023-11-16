@@ -56,20 +56,7 @@ fn where_filter(filter: &ArbFilterParams) -> String {
         params.push(format!("profit__eth__ >= {}", format_ether(min_profit)));
     }
     if let Some(token_pair) = &filter.token_pair {
-        let token0 = if token_pair.token < token_pair.weth {
-            token_pair.token
-        } else {
-            token_pair.weth
-        };
-        let token1 = if token_pair.token > token_pair.weth {
-            token_pair.token
-        } else {
-            token_pair.weth
-        };
-        params.push(format!(
-            "token_0 = '{:?}' AND token_1 = '{:?}'",
-            token0, token1
-        ));
+        params.push(format!("token = '{:?}'", token_pair.token));
     }
     params.join(" AND ")
 }
@@ -131,8 +118,8 @@ impl PostgresConnect {
                         profit__eth__ NUMERIC,
                         event_block INTEGER NOT NULL,
                         event_timestamp TIMESTAMP NOT NULL,
-                        token_0 VARCHAR(42),
-                        token_1 VARCHAR(42)
+                        token VARCHAR(42),
+                        amount_in__eth__ NUMERIC
                     )",
                     ARBS_TABLE
                 ),
@@ -165,13 +152,16 @@ impl ArbDb for PostgresConnect {
                 let arb = arb.clone();
 
                 let trade = &arb.results[0].user_trade;
-                let token0 = if trade.tokens.token < trade.tokens.weth { trade.tokens.token } else { trade.tokens.weth };
-                let token1 = if trade.tokens.token > trade.tokens.weth { trade.tokens.token } else { trade.tokens.weth };
+                let token = trade.tokens.token.to_owned();
+
+                let mut arb_results = arb.results.to_owned();
+                arb_results.sort_by(|a, b| a.backrun_trade.profit.cmp(&b.backrun_trade.profit));
+                let best_arb = arb_results.last().expect("err: no arbs to sort").to_owned();
 
                 tokio::task::spawn(async move {
                     client
                 .execute(
-                    &format!("INSERT INTO {} (tx_hash, profit__eth__, event_block, event_timestamp, token_0, token_1)
+                    &format!("INSERT INTO {} (tx_hash, profit__eth__, event_block, event_timestamp, token, amount_in__eth__)
                         VALUES ($1, $2, $3, $4, $5, $6)
                         ON CONFLICT (tx_hash) DO UPDATE SET profit__eth__ = $2",
                         ARBS_TABLE
@@ -181,8 +171,9 @@ impl ArbDb for PostgresConnect {
                         &max_profit,
                         &(arb.event.block as i32),
                         &timestamp,
-                        &format!("{:?}", token0),
-                        &format!("{:?}", token1),
+                        &format!("{:?}", token),
+                        &Decimal::from_str(&format_ether(best_arb.backrun_trade.amount_in))
+                            .expect("failed to encode amount_in"),
                     ],
                 )
                 .await.expect("failed to write arb to postgres");
@@ -211,14 +202,12 @@ impl ArbDb for PostgresConnect {
         let arbs = rows
             .into_iter()
             .map(|row| {
-                let token0 = row
+                let token = row
                     .get::<_, String>(4)
                     .parse::<Address>()
                     .expect("invalid token address");
-                let token1 = row
-                    .get::<_, String>(5)
-                    .parse::<Address>()
-                    .expect("invalid token address");
+                let amount_in =
+                    parse_ether(row.get::<_, Decimal>(5).to_string()).expect("invalid amount in");
                 SimArbResultBatch {
                     event: EventHistory {
                         // TODO: change this once the rest of the fields are added to postgres
@@ -237,7 +226,6 @@ impl ArbDb for PostgresConnect {
                     results: vec![SimArbResult {
                         user_trade: UserTradeParams {
                             pool_variant: PoolVariant::UniswapV2,
-                            // TODO: support tokenIn/Out instead of token0/1
                             token_in: Address::zero(),
                             token_out: Address::zero(),
                             amount0_sent: I256::zero(),
@@ -246,14 +234,16 @@ impl ArbDb for PostgresConnect {
                             pool: Address::zero(),
                             price: U256::zero(),
                             tokens: TokenPair {
-                                token: token0,
-                                weth: token1,
+                                token,
+                                weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                                    .parse::<Address>()
+                                    .unwrap(),
                             },
                             arb_pools: vec![],
                         },
                         backrun_trade: BackrunResult {
-                            // TODO: fill with real data once it's added to the postgres table schema
-                            amount_in: U256::from(0),
+                            amount_in,
+                            // dummy data follows; TODO: add more fields if/when needed
                             balance_end: U256::from(1),
                             profit: U256::from(1),
                             start_pool: Address::zero(),

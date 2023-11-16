@@ -322,15 +322,7 @@ mod test {
                     timestamp_start: None,
                     timestamp_end: None,
                     min_profit: Some(1.into()),
-                    // token_pair: None,
-                    token_pair: Some(TokenPair {
-                        weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-                            .parse::<Address>()
-                            .unwrap(),
-                        token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
-                            .parse::<Address>()
-                            .unwrap(),
-                    }),
+                    token_pair: None,
                 },
                 None,
                 Some(5),
@@ -361,6 +353,31 @@ mod test {
             .iter()
             .all(|arb| arb.event.timestamp >= timestamp_first));
 
+        // filter by token pair
+        let arbs = connect
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: None,
+                    block_end: None,
+                    timestamp_start: None,
+                    timestamp_end: None,
+                    min_profit: Some(1.into()),
+                    token_pair: Some(TokenPair {
+                        weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                            .parse::<Address>()
+                            .unwrap(),
+                        token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+                            .parse::<Address>()
+                            .unwrap(),
+                    }),
+                },
+                None,
+                Some(5),
+            )
+            .await?;
+        assert!(!arbs.is_empty());
+        assert!(arbs.len() <= 5);
+        assert!(arbs.iter().all(|arb| arb.event.block >= block_first));
         Ok(())
     }
 

@@ -15,6 +15,7 @@ pub struct ArbStat {
     pub amount_in_std_dev: f64,
 }
 
+/// TODO: add function in this module to filter arbs required for this analysis.
 /// EXPECTS FILTERED PAIR DATA.
 /// All arbs passed are assumed to be for the same pair.
 pub fn analyze_pair_data(arbs: &Vec<SimArbResultBatch>) -> Result<ArbStat> {
