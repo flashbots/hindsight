@@ -44,7 +44,7 @@ pub enum Commands {
         )]
         db_engine: Option<DbEngine>,
     },
-    /// Export arbs from DB to a JSON file.
+    /// Export arbs from DB to a JSON file or another DB.
     Export {
         /// File to save arbs to.
         ///
@@ -79,5 +79,44 @@ pub enum Commands {
             help = &format!("<{}>: DB engine to write arb data to, default None (save to file). Ignored if --filename is specified.", DbEngine::enum_flags())
         )]
         write_db: Option<DbEngine>,
+    },
+    /// Analyze arbs from DB and export the results to a JSON file or stdout.
+    Analyze {
+        // TODO: DRY these params
+        /// File to save results to.
+        ///
+        /// All files are saved in `./analysis/`. (Default="analysis_{unix-timestamp}.json")
+        #[arg(short, long)]
+        filename: Option<String>,
+        /// Export arbs starting from this timestamp.
+        #[arg(short, long)]
+        timestamp_start: Option<u32>,
+        /// Stop exporting arbs at this timestamp.
+        #[arg(long)]
+        timestamp_end: Option<u32>,
+        /// Export arbs starting from this block.
+        #[arg(short, long)]
+        block_start: Option<u32>,
+        /// Stop exporting arbs at this block.
+        #[arg(long)]
+        block_end: Option<u32>,
+        /// Minimum profit of arb to export, in ETH decimal format (e.g. 0.01 => 1e16 wei)
+        #[arg(short = 'p', long)]
+        min_profit: Option<f64>,
+        /// DB Engine to use to store arb data. Defaults to "mongo".
+        /// TODO: DRY this up
+        #[arg(
+            long = "db",
+            help = &format!("<{}>: DB engine to read arb data from, defaults to mongo", DbEngine::enum_flags())
+        )]
+        read_db: Option<DbEngine>,
+        #[arg(
+            short = 'o',
+            long = "db-out",
+            help = &format!("<{}>: DB engine to write arb data to, default None (save to file). Ignored if --filename is specified.", DbEngine::enum_flags())
+        )]
+        write_db: Option<DbEngine>,
+        #[arg(short = 'c', long)]
+        token: Option<String>,
     },
 }

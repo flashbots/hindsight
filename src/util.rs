@@ -18,6 +18,12 @@ use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 pub type WsClient = Arc<Provider<Ws>>;
 
+pub fn weth() -> H160 {
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+        .parse()
+        .unwrap()
+}
+
 pub async fn get_ws_client(rpc_url: Option<String>, max_reconnects: usize) -> Result<WsClient> {
     let rpc_url = if let Some(rpc_url) = rpc_url {
         rpc_url

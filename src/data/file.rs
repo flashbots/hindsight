@@ -12,9 +12,10 @@ use std::{
 
 pub const EXPORT_DIR: &str = "./arbData";
 
-fn parse_filename(filename: Option<String>) -> Result<String> {
+fn parse_filename(prefix: &str, filename: Option<String>) -> Result<String> {
     let filename = filename.unwrap_or(format!(
-        "arbs_{}.json",
+        "{}_{}.json",
+        prefix,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs()
@@ -32,9 +33,9 @@ pub struct FileWriter {
 }
 
 impl FileWriter {
-    pub fn new(filename: Option<String>) -> Self {
+    pub fn new(prefix: &str, filename: Option<String>) -> Self {
         FileWriter {
-            filename: parse_filename(filename).expect("failed to parse filename"),
+            filename: parse_filename(prefix, filename).expect("failed to parse filename"),
         }
     }
 

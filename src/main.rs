@@ -1,4 +1,4 @@
-use ethers::types::U256;
+use ethers::{types::H160, utils::parse_ether};
 use hindsight::{
     commands::{self},
     data::{
@@ -8,10 +8,10 @@ use hindsight::{
     // debug,
     hindsight::Hindsight,
     info,
-    util::get_ws_client,
+    interfaces::TokenPair,
+    util::{get_ws_client, weth},
 };
 use mev_share_sse::EventClient;
-use revm::primitives::bitvec::macros::internal::funty::Fundamental;
 use std::thread::available_parallelism;
 mod cli;
 use cli::{Cli, Commands};
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
             } else if min_profit > 0.0 && min_profit * 1e9 < 1.0 {
                 panic!("min_profit must be >= 1e9 wei");
             }
-            let umin_profit = U256::from((min_profit * 1e9) as u64) * U256::from(1e9.as_u64());
+            let umin_profit = parse_ether(min_profit)?;
 
             let db_engine = read_db.unwrap_or_default();
             let read_db = Db::new(db_engine.to_owned()).await.connect;
@@ -136,6 +136,55 @@ async fn main() -> anyhow::Result<()> {
                 write_dest,
             )
             .await?;
+        }
+        Some(Commands::Analyze {
+            filename,
+            timestamp_start,
+            timestamp_end,
+            block_start,
+            block_end,
+            min_profit,
+            read_db,
+            write_db,
+            token,
+        }) => {
+            let min_profit = if let Some(min_profit) = min_profit {
+                Some(parse_ether(min_profit)?)
+            } else {
+                None
+            };
+            let token = if let Some(token) = token {
+                Some(token.parse::<H160>()?)
+            } else {
+                None
+            };
+
+            let db_engine = read_db.unwrap_or_default();
+            let read_db = Db::new(db_engine.to_owned()).await.connect;
+            let write_dest = if filename.is_some() {
+                WriteEngine::File(filename)
+            } else if let Some(write_db) = write_db {
+                WriteEngine::Db(write_db)
+            } else {
+                WriteEngine::File(None)
+            };
+
+            let params = ArbFilterParams {
+                block_end,
+                block_start,
+                timestamp_end,
+                timestamp_start,
+                min_profit,
+                token_pair: if let Some(token) = token {
+                    Some(TokenPair {
+                        token,
+                        weth: weth(),
+                    })
+                } else {
+                    None
+                },
+            };
+            commands::analyze::run(params, &read_db, write_dest).await?;
         }
         None => {
             let program = std::env::args().next().unwrap_or("hindsight".to_owned());

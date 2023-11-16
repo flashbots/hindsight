@@ -158,7 +158,7 @@ pub async fn export_arbs_core(
 
     // init chosen write engine
     let write_engine = match write_dest.clone() {
-        WriteEngine::File(filename) => Arc::new(FileWriter::new(filename)),
+        WriteEngine::File(filename) => Arc::new(FileWriter::new("arbs", filename)),
         WriteEngine::Db(db_engine) => Db::new(db_engine).await.connect,
     };
 
