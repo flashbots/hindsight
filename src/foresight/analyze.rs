@@ -10,15 +10,12 @@ use statistical::{mean, standard_deviation};
 pub struct ArbStat {
     pub pair_tokens: TokenPair,
     /// Amounts are represented as floats (by 1/1e18).
-    /// TODO: support other precisions; USDC uses 1/1e6 for instance.
     pub amount_in_mean: f64,
     pub amount_in_std_dev: f64,
 }
 
-/// TODO: add function in this module to filter arbs required for this analysis.
-/// EXPECTS FILTERED PAIR DATA.
-/// All arbs passed are assumed to be for the same pair.
-pub fn analyze_pair_data(arbs: &Vec<SimArbResultBatch>) -> Result<ArbStat> {
+/// EXPECTS ARBS TO BE FILTERED: `arbs` are all assumed to be for the same token pair.
+pub fn analyze_arbs(arbs: &Vec<SimArbResultBatch>) -> Result<ArbStat> {
     // sort arbs by profit to get array of best arbs from each batch
     // then reduce to amount_in
     let amounts = arbs
@@ -38,7 +35,6 @@ pub fn analyze_pair_data(arbs: &Vec<SimArbResultBatch>) -> Result<ArbStat> {
             n
         })
         .collect::<Vec<f64>>();
-    // TODO: support other precisions; USDC uses 1/1e6 for instance.
 
     let xy_mean = mean(&amounts);
     let xy_sd = standard_deviation(&amounts, Some(xy_mean));
@@ -67,8 +63,8 @@ mod tests {
     }
 
     #[test]
-    fn test_analyze_pair_data() -> Result<()> {
-        let result = analyze_pair_data(&get_test_arbs()).unwrap();
+    fn test_analyze_arbs() -> Result<()> {
+        let result = analyze_arbs(&get_test_arbs()).unwrap();
         assert!(result.amount_in_mean > 1.099999 && result.amount_in_mean < 1.1);
         assert!(result.amount_in_std_dev > 0.0 && result.amount_in_std_dev < 0.000001);
         Ok(())
