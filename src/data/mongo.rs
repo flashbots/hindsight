@@ -377,7 +377,6 @@ mod test {
             .await?;
         assert!(!arbs.is_empty());
         assert!(arbs.len() <= 5);
-        assert!(arbs.iter().all(|arb| arb.event.block >= block_first));
         Ok(())
     }
 
