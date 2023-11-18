@@ -1,5 +1,6 @@
 [package]
 name = "sim"
+description = "in-memory EVM simulator"
 version = "0.2.0"
 edition = "2021"
 
@@ -19,5 +20,3 @@ uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}
 hashbrown = "0.14.2"
 eyre = "0.6.9"
 foundry-contracts.workspace = true
-# foundry-evm = { git = "https://github.com/foundry-rs/foundry", version = "0.2.0" }
-# foundry-evm = { path = "../../foundry/crates/evm/evm" }

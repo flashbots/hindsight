@@ -3,16 +3,14 @@ members = ["data", "foresight", "hindsight", "sim", "hindsight_core"]
 resolver = "2"
 
 [workspace.package]
+description = "tools to simulate and measure MEV extraction"
 version = "0.2.0"
-name = "hindsight"
 edition = "2021"
 rust-version = "1.74.0"
 homepage = "https://github.com/flashbots/hindsight"
 authors = ["Brock Smedley <brock@flashbots.net>"]
 license = "MIT"
 repository = "https://github.com/flashbots/hindsight"
-exclude = ["foundry"]
-
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
