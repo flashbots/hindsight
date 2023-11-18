@@ -6,8 +6,8 @@ Credit: mouseless [rusty-sando](https://raw.githubusercontent.com/mouseless-eth/
 
 import "./interfaces/IERC20.sol";
 import "v2-core/interfaces/IUniswapV2Pair.sol";
-import "v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v2-periphery/interfaces/IUniswapV2Router02.sol";
+import "v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "./lib/SafeMath.sol";
 
 contract BrainDance {
