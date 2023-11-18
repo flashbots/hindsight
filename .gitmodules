@@ -10,3 +10,6 @@
 [submodule "sim/contracts/lib/v3-core"]
 	path = sim/contracts/lib/v3-core
 	url = https://github.com/Uniswap/v3-core
+[submodule "sim/contracts/lib/v2-core"]
+	path = sim/contracts/lib/v2-core
+	url = https://github.com/Uniswap/v2-core
