@@ -1711,6 +1711,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-contracts"
+version = "0.1.0"
+dependencies = [
+ "ethers",
+ "serde",
+]
+
+[[package]]
 name = "fs2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4440,6 +4448,7 @@ dependencies = [
  "data",
  "ethers",
  "eyre",
+ "foundry-contracts",
  "futures",
  "hashbrown 0.14.2",
  "hindsight_core",

@@ -15,7 +15,8 @@ exclude = ["foundry"]
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
+[workspace.dependencies]
+foundry-contracts = { path="./sim/contracts/out/bindings" }
 # [dependencies]
 # anyhow = "1.0.71"
 # async-recursion = "1.0.4"
