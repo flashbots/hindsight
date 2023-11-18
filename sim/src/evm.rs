@@ -1,14 +1,18 @@
 // use crate::{
 //     debug, error::HindsightError, interfaces::PoolVariant, util::get_price_v3, Error, Result,
 // };
-use crate::util::{get_price_v3, ETH_DEV_ACCOUNT};
+use crate::util::{get_price_v3, BRAINDANCE_ADDR, CONTROLLER_ADDR, ETH_DEV_ACCOUNT};
 // use arbiter_core;
 pub use crate::fork_db::ForkDB;
 use ethers::{
-    abi::{self, ParamType},
+    abi::{self, AbiDecode, AbiEncode, ParamType},
     // middleware::gas_oracle::Cache,
     prelude::abigen,
     types::{Address, Bytes as BytesEthers, Transaction, TransactionRequest, I256, U256, U64},
+};
+use foundry_contracts::brain_dance::{
+    BrainDanceCalls, CalculateSwapV2Call, CalculateSwapV2Return, CalculateSwapV3Call,
+    CalculateSwapV3Return,
 };
 use hindsight_core::{debug, err, error::HindsightError, interfaces::PoolVariant, Error, Result};
 use revm::{
@@ -59,20 +63,23 @@ pub fn commit_braindance_swap(
     _nonce: Option<u64>,
 ) -> Result<U256> {
     let swap_data = match pool_variant {
-        PoolVariant::UniswapV2 => {
-            braindance::build_swap_v2_data(amount_in, target_pool, token_in, token_out)
-        }
-        PoolVariant::UniswapV3 => braindance::build_swap_v3_data(
-            I256::from_raw(amount_in),
-            target_pool,
-            token_in,
-            token_out,
-        ),
+        PoolVariant::UniswapV2 => BrainDanceCalls::CalculateSwapV2(CalculateSwapV2Call {
+            amount_in: amount_in.into(),
+            target_pair: target_pool.0.into(),
+            input_token: token_in.0.into(),
+            output_token: token_out.0.into(),
+        }),
+        PoolVariant::UniswapV3 => BrainDanceCalls::CalculateSwapV3(CalculateSwapV3Call {
+            amount_in: I256::from_raw(amount_in),
+            target_pool_address: target_pool.0.into(),
+            input_token: token_in.0.into(),
+            output_token: token_out.0.into(),
+        }),
     };
 
-    evm.env.tx.caller = braindance_controller_address();
-    evm.env.tx.transact_to = TransactTo::Call(braindance_address().0.into());
-    evm.env.tx.data = swap_data.0;
+    evm.env.tx.caller = CONTROLLER_ADDR.0.into();
+    evm.env.tx.transact_to = TransactTo::Call(BRAINDANCE_ADDR.0.into());
+    evm.env.tx.data = swap_data.encode().into();
     evm.env.tx.gas_limit = 700000;
     evm.env.tx.gas_price = u256_to_ru256(base_fee);
     evm.env.tx.value = rU256::ZERO;
@@ -92,12 +99,12 @@ pub fn commit_braindance_swap(
         ExecutionResult::Halt { reason, .. } => return err!("swap halted: {:?}", reason),
     };
     let (_amount_out, balance) = match pool_variant {
-        PoolVariant::UniswapV2 => match braindance::decode_swap_v2_result(output.into()) {
-            Ok(output) => output,
+        PoolVariant::UniswapV2 => match CalculateSwapV2Return::decode(&output) {
+            Ok(output) => (output.amount_out, output.real_after_balance),
             Err(e) => return err!("failed to decode swap result: {:?}", e),
         },
-        PoolVariant::UniswapV3 => match braindance::decode_swap_v3_result(output.into()) {
-            Ok(output) => output,
+        PoolVariant::UniswapV3 => match CalculateSwapV3Return::decode(&output) {
+            Ok(output) => (output.amount_out, output.real_after_balance),
             Err(e) => return err!("failed to decode swap result: {:?}", e),
         },
     };
@@ -392,7 +399,7 @@ mod tests {
     async fn it_gets_sim_price_v2() -> Result<()> {
         let client = get_test_ws_client().await?;
         let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
-        let mut evm = fork_evm(&client, &block_info).await?;
+        let mut evm = fork_evm(&client, block_info.number.as_u64()).await?;
         let target_pool = Address::from_str("0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f")?; // UniV2 SHIB/WETH
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
@@ -406,7 +413,7 @@ mod tests {
     async fn it_gets_sim_price_v3() -> Result<()> {
         let client = get_test_ws_client().await?;
         let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
-        let mut evm = fork_evm(&client, &block_info).await?;
+        let mut evm = fork_evm(&client, block_info.number.as_u64()).await?;
         let target_pool = Address::from_str("0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec")?; // UniV3 SHIB/WETH (fee=3000)
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB

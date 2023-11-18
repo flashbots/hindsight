@@ -15,7 +15,7 @@ pub struct DevAccount {
     pub private_key: H256,
 }
 
-fn eth_dev_account() -> DevAccount {
+pub fn eth_dev_account() -> DevAccount {
     DevAccount {
         address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
             .parse::<Address>()
@@ -28,6 +28,12 @@ fn eth_dev_account() -> DevAccount {
 
 lazy_static! {
     pub static ref ETH_DEV_ACCOUNT: DevAccount = eth_dev_account();
+    pub static ref BRAINDANCE_ADDR: Address = "0xc433333333333333333333333333333333333353"
+        .parse::<Address>()
+        .expect("invalid address");
+    pub static ref CONTROLLER_ADDR: Address = "0xf00000000000000000000000000000000000000d"
+        .parse::<Address>()
+        .expect("invalid address");
 }
 
 /// Returns the price (token1 per token0).
