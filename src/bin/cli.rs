@@ -1,5 +1,4 @@
-use ethers::{types::H160, utils::parse_ether};
-use hindsight::{
+use crate::cli_core::{
     commands::{self},
     data::{
         arbs::{ArbFilterParams, WriteEngine},
@@ -11,6 +10,7 @@ use hindsight::{
     interfaces::TokenPair,
     util::{get_ws_client, weth},
 };
+use ethers::{types::H160, utils::parse_ether};
 use mev_share_sse::EventClient;
 use std::thread::available_parallelism;
 mod cli_core;

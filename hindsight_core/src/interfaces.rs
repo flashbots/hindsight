@@ -1,4 +1,4 @@
-use ethers::types::{Address, I256, U256};
+use ethers::types::{Address, Block, Transaction, I256, U256, U64};
 use mev_share_sse::EventHistory;
 use serde::{self, Deserialize, Serialize};
 
@@ -79,8 +79,30 @@ pub enum PoolVariant {
     UniswapV3,
 }
 
-#[cfg(test)]
-mod test {
+#[derive(Default, Clone, Copy)]
+pub struct BlockInfo {
+    pub number: U64,
+    pub base_fee_per_gas: U256,
+    pub timestamp: U256,
+    // These are optional because we don't know these values for `next_block`
+    pub gas_used: Option<U256>,
+    pub gas_limit: Option<U256>,
+}
+
+impl From<Block<Transaction>> for BlockInfo {
+    fn from(block: Block<Transaction>) -> Self {
+        Self {
+            number: block.number.unwrap_or_default(),
+            base_fee_per_gas: block.base_fee_per_gas.unwrap_or_default(),
+            timestamp: block.timestamp,
+            gas_used: Some(block.gas_used),
+            gas_limit: Some(block.gas_limit),
+        }
+    }
+}
+
+// #[cfg(test)]
+pub mod test {
     use super::*;
     use ethers::{types::H256, utils::parse_ether};
     use mev_share_sse::Hint;

@@ -1,0 +1,26 @@
+[package]
+name = "sim"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+data = { path = "../data" }
+hindsight_core = { path = "../hindsight_core" }
+
+# rusty-sando = {path = "../rusty-sando/bot"}
+
+# arbiter-core = "0.8.0"
+async-recursion = "1.0.4"
+ethers = {version = "=2.0.9", features = ["ws"]}
+futures = "0.3.28"
+lazy_static = "1.4.0"
+mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
+revm = {version = "3.5.0", features = ["ethersdb", "serde", "std"]}
+tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
+uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}
+hashbrown = "0.14.2"
+eyre = "0.6.9"
+# foundry-evm = { git = "https://github.com/foundry-rs/foundry", version = "0.2.0" }
+# foundry-evm = { path = "../../foundry/crates/evm/evm" }

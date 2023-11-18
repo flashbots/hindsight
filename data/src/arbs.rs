@@ -3,15 +3,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::db::DbEngine;
-use crate::{
-    data::{db::Db, file::FileWriter},
-    debug, info,
-    interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
-    Result,
-};
+use crate::{db::Db, debug, file::FileWriter};
 use async_trait::async_trait;
 use deadqueue::unlimited::Queue;
 use ethers::{types::U256, utils::format_ether};
+use hindsight_core::{
+    info,
+    interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
+    Result,
+};
 
 const NUM_ARBS_PER_READ: i64 = 3000;
 

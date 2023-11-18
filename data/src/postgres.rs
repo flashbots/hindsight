@@ -31,9 +31,8 @@ pub struct PostgresConfig {
 
 impl Default for PostgresConfig {
     fn default() -> Self {
-        let config = crate::config::Config::default();
         Self {
-            url: config.postgres_url.unwrap(),
+            url: "postgres://postgres:adminPassword@localhost:5432".to_owned(),
         }
     }
 }
@@ -276,19 +275,15 @@ mod tests {
     use ethers::types::H160;
 
     use super::*;
-    use crate::{config::Config, interfaces::TokenPair};
+    use crate::interfaces::TokenPair;
+
+    async fn get_db() -> Result<PostgresConnect> {
+        PostgresConnect::new(PostgresConfig::default()).await
+    }
 
     #[tokio::test]
     async fn it_connects_postgres() -> Result<()> {
-        let config = Config::default();
-        if config.postgres_url.is_none() {
-            println!("no postgres url, skipping test");
-            return Ok(());
-        }
-        let connect = PostgresConnect::new(PostgresConfig {
-            url: config.postgres_url.unwrap(),
-        })
-        .await?;
+        let connect = get_db().await?;
         let res = connect
             .client
             .execute("CREATE TABLE test001 (id serial)", &[])
@@ -297,14 +292,6 @@ mod tests {
         let res = connect.client.execute("DROP TABLE test001", &[]).await;
         assert!(res.is_ok());
         Ok(())
-    }
-
-    async fn get_db() -> Result<PostgresConnect> {
-        let config = Config::default();
-        PostgresConnect::new(PostgresConfig {
-            url: config.postgres_url.unwrap(),
-        })
-        .await
     }
 
     #[tokio::test]

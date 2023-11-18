@@ -11,6 +11,8 @@ pub enum HindsightError {
     PoolNotFound(Address),
     /// Could not find transaction onchain.
     TxNotLanded(H256),
+    /// Failed to read db.
+    DbReadError(String),
     /// Failed to call smart contract.
     CallError(String),
     /// Failed to perform math operation.
@@ -34,7 +36,12 @@ impl From<HindsightError> for Error {
             HindsightError::TxNotLanded(tx_hash) => {
                 anyhow::format_err!("tx not landed (hash={})", tx_hash)
             }
-            HindsightError::CallError(msg) => anyhow::format_err!("call error: {}", msg),
+            HindsightError::DbReadError(msg) => {
+                anyhow::format_err!("db read error: {}", msg)
+            }
+            HindsightError::CallError(msg) => {
+                anyhow::format_err!("call error: {}", msg)
+            }
             HindsightError::MathError(msg) => {
                 anyhow::format_err!("math error: {}", msg,)
             }
@@ -48,6 +55,6 @@ impl From<HindsightError> for Error {
 #[macro_export]
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(anyhow::anyhow!(format!($($arg)*)))
+        Err(hindsight_core::anyhow::anyhow!(format!($($arg)*)))
     };
 }

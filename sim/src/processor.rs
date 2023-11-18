@@ -1,13 +1,17 @@
-use crate::error::HindsightError;
-use crate::interfaces::SimArbResultBatch;
-use crate::{info, Error, Result};
-use crate::{sim::core::find_optimal_backrun_amount_in_out, util::WsClient};
+use crate::core::find_optimal_backrun_amount_in_out;
 use ethers::{
     providers::Middleware,
     types::{Transaction, H256, U256},
 };
+use hindsight_core::{
+    error::HindsightError,
+    eth_client::WsClient,
+    info,
+    interfaces::{BlockInfo, SimArbResultBatch},
+    Error, Result,
+};
 use mev_share_sse::EventHistory;
-use rusty_sando::types::BlockInfo;
+// use rusty_sando::types::BlockInfo;
 use std::collections::HashMap;
 
 pub type H256Map<T> = HashMap<H256, T>;
@@ -33,7 +37,9 @@ pub async fn simulate_backrun_arbs(
     let block_info = BlockInfo {
         number: sim_block_num.into(),
         timestamp: block.timestamp,
-        base_fee: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
+        base_fee_per_gas: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
+        gas_limit: Some(block.gas_limit),
+        gas_used: Some(block.gas_used),
     };
 
     let res = find_optimal_backrun_amount_in_out(client, tx, event, &block_info).await?;

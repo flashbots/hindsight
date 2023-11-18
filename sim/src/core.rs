@@ -1,52 +1,76 @@
-use crate::error::HindsightError;
-use crate::interfaces::{
-    BackrunResult, PairPool, PoolVariant, SimArbResult, TokenPair, UserTradeParams,
-};
-use crate::sim::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
+use crate::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
+use crate::fork_db::ForkDB;
+use crate::fork_factory::ForkFactory;
+use crate::state_diff::StateDiff;
 use crate::util::{
-    get_all_trading_pools, get_decimals, get_pair_tokens, get_price_v2, get_price_v3, WsClient,
+    get_all_trading_pools, get_decimals, get_pair_tokens, get_price_v2, get_price_v3,
 };
-use crate::{debug, info};
-use crate::{Error, Result};
 use async_recursion::async_recursion;
-use ethers::providers::Middleware;
-use ethers::types::{AccountDiff, Address, BlockNumber, Transaction, H160, H256, I256, U256};
-use futures::future;
-use mev_share_sse::{EventHistory, EventTransactionLog};
-use revm::primitives::U256 as rU256;
-use revm::EVM;
-use rusty_sando::prelude::fork_db::ForkDB;
-use rusty_sando::simulate::{
-    attach_braindance_module, braindance_starting_balance, setup_block_state,
+use data::interfaces::{
+    BackrunResult, BlockInfo, PairPool, PoolVariant, SimArbResult, TokenPair, UserTradeParams,
 };
-use rusty_sando::types::BlockInfo;
-use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
-use std::collections::BTreeMap;
+use ethers::providers::Middleware;
+use ethers::types::{Address, BlockNumber, Transaction, H160, H256, I256, U256};
+use futures::future;
+use hindsight_core::anyhow;
+use hindsight_core::error::HindsightError;
+use hindsight_core::eth_client::WsClient;
+use hindsight_core::{debug, err, info, Error, Result};
+use mev_share_sse::{EventHistory, EventTransactionLog};
+use revm::primitives::{Address as rAddress, U256 as rU256};
+use revm::EVM;
+// use rusty_sando::prelude::fork_db::ForkDB;
+// use rusty_sando::simulate::{
+//     attach_braindance_module, braindance_starting_balance, setup_block_state,
+// };
+// use rusty_sando::types::BlockInfo;
+// use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::str::FromStr;
 
 const MAX_DEPTH: usize = 7;
 const STEP_INTERVALS: usize = 15;
 
+fn braindance_starting_balance() -> U256 {
+    U256::from(10u64).pow(18.into()) * 420
+}
+
+fn set_block_state(evm: &mut EVM<ForkDB>, block_info: &BlockInfo) {
+    evm.env.block.number = rU256::from(block_info.number.as_u64());
+    evm.env.block.timestamp = rU256::from(block_info.timestamp.as_u64());
+    let mut basefee_slice = [0u8; 32];
+    block_info
+        .base_fee_per_gas
+        .to_big_endian(&mut basefee_slice);
+    evm.env.block.basefee = rU256::from_be_bytes(basefee_slice);
+    // use something other than default
+    evm.env.block.coinbase =
+        rAddress::from_str("0xC0ffeeFee15BAD00000000000000000000000000").unwrap();
+}
+
 /// Return an evm instance forked from the provided block info and client state
 /// with braindance module initialized.
 /// Braindance contracts starts w/ braindance_starting_balance, which is 420 WETH.
-pub async fn fork_evm(client: &WsClient, block_info: &BlockInfo) -> Result<EVM<ForkDB>> {
-    let fork_block_num = BlockNumber::Number(block_info.number);
+pub async fn fork_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
+    let fork_block_num = BlockNumber::Number(block_num.into());
     let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
 
-    let state_diffs =
-        if let Some(sd) = state_diff::get_from_txs(client, &vec![], fork_block_num).await {
-            sd
-        } else {
-            BTreeMap::<H160, AccountDiff>::new()
-        };
-    let initial_db = state_diff::to_cache_db(&state_diffs, fork_block, client).await?;
-    let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), initial_db, fork_block);
+    // let block_txs = client.get_block_with_txs(block_hash_or_number)
+
+    // let state_diffs =
+    //     if let Some(sd) = state_diff::get_from_txs(client, &vec![], fork_block_num).await {
+    //         sd
+    //     } else {
+    //         BTreeMap::<H160, AccountDiff>::new()
+    //     };
+    let state_diff = StateDiff::from_block(client, block_num).await?;
+    let cache_db = state_diff.to_cache_db(Some(block_num.into())).await?;
+
+    let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), cache_db, fork_block);
     attach_braindance_module(&mut fork_factory);
 
     let mut evm = EVM::new();
     evm.database(fork_factory.new_sandbox_fork());
-    setup_block_state(&mut evm, block_info);
+    set_block_state(&mut evm, &state_diff.block.into());
     Ok(evm)
 }
 
@@ -83,7 +107,7 @@ async fn derive_trade_params(
     let tx_receipt = client
         .get_transaction_receipt(tx.hash)
         .await?
-        .ok_or::<Error>(HindsightError::TxNotLanded(tx.hash).into())?;
+        .ok_or(HindsightError::TxNotLanded(tx.hash))?;
 
     // collect trade params for each pair derived from swap logs
     let mut trade_params = vec![];
@@ -97,10 +121,7 @@ async fn derive_trade_params(
             .logs
             .iter()
             .find(|log| log.topics.contains(&swap_topic) && log.address == pool_address)
-            .ok_or(anyhow::format_err!(
-                "no swap logs found for tx {:?}",
-                tx.hash
-            ))?;
+            .ok_or(anyhow::anyhow!("no swap logs found for tx {:?}", tx.hash))?;
 
         // derive pool variant from event log topics
         let pool_variant = if swap_topic == univ3_topic {
@@ -293,7 +314,7 @@ async fn step_arb(
         let client = client.clone();
         // spawn the task, hold on to its handle
         handles.push(tokio::task::spawn(async move {
-            let evm = fork_evm(&client, &block_info).await?;
+            let evm = fork_evm(&client, block_info.number.as_u64()).await?;
             sim_arb_single(
                 evm,
                 user_tx,
@@ -351,14 +372,13 @@ async fn step_arb(
     /*  ============================================================
     ===================== IM RECURSIIIIING =========================
     ============================================================  */
-    let r_amount: rU256 = best_amount_in.into();
     let range = [
         if best_amount_in < band_width {
             0.into()
         } else {
             best_amount_in - band_width
         },
-        if U256::MAX - r_amount < band_width {
+        if U256::MAX - best_amount_in < band_width {
             U256::MAX
         } else {
             best_amount_in + band_width
@@ -434,7 +454,7 @@ pub async fn find_optimal_backrun_amount_in_out(
             let params = params.clone();
             /* SPAWN A NEW (GREEN) THREAD */
             let handle = tokio::task::spawn(async move {
-                let mut evm = fork_evm(&client, &block_info)
+                let mut evm = fork_evm(&client, block_info.number.as_u64())
                     .await
                     .expect("failed to fork evm");
 
@@ -590,7 +610,7 @@ async fn sim_arb_single(
         start_pool,
         params.tokens.weth,
         params.tokens.token,
-        block_info.base_fee,
+        block_info.base_fee_per_gas,
         None,
     );
     debug!("braindance 1 completed. {:?}", res);
@@ -605,7 +625,7 @@ async fn sim_arb_single(
         end_pool,
         params.tokens.token,
         params.tokens.weth,
-        block_info.base_fee + (block_info.base_fee * 2500) / 10000,
+        block_info.base_fee_per_gas + (block_info.base_fee_per_gas * 2500) / 10000,
         None,
     )?;
     debug!("braindance 2 completed. {:?}", res);
@@ -615,13 +635,14 @@ async fn sim_arb_single(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{get_all_trading_pools, get_block_info, test::get_test_ws_client, ETH};
+    use crate::util::{get_all_trading_pools, get_block_info, ETH};
     use anyhow::Result;
     use ethers::providers::Middleware;
+    use hindsight_core::eth_client::test::get_test_ws_client;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
         let block_info = get_block_info(client, block_num).await?;
-        fork_evm(client, &block_info).await
+        fork_evm(client, block_info.number.as_u64()).await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

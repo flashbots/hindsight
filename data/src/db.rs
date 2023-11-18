@@ -1,9 +1,7 @@
 use crate::{
-    data::{
-        arbs::ArbDatabase,
-        mongo::{MongoConfig, MongoConnect},
-        postgres::{PostgresConfig, PostgresConnect},
-    },
+    arbs::ArbDatabase,
+    mongo::{MongoConfig, MongoConnect},
+    postgres::{PostgresConfig, PostgresConnect},
     Result,
 };
 use std::sync::Arc;
@@ -25,7 +23,6 @@ impl DbEngine {
             .map(|engine| engine.to_string())
             .reduce(|a, b| format!("{} | {}", a, b))
             .expect("failed to reduce db engines to string")
-            
     }
 }
 

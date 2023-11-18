@@ -1,13 +1,9 @@
-use crate::{
-    data::arbs::ArbDatabase,
-    info,
-    sim::processor::{simulate_backrun_arbs, H256Map},
-    util::WsClient,
-    Result,
-};
+use crate::{info, util::WsClient, Result};
+use data::arbs::ArbDatabase;
 use ethers::types::Transaction;
 use futures::future;
 use mev_share_sse::EventHistory;
+use sim::processor::{simulate_backrun_arbs, H256Map};
 
 /// Transaction processor for hindsight. Requires a websocket connection to an archive node.
 #[derive(Clone, Debug)]

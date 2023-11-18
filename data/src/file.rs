@@ -1,15 +1,13 @@
 use crate::{
-    data::arbs::{ArbDb, ArbFilterParams, WriteEngine},
-    info,
-    interfaces::{SimArbResultBatch, StoredArbsRanges},
-    Result,
+    arbs::{ArbDb, ArbFilterParams, WriteEngine},
+    info, Result,
 };
 use async_trait::async_trait;
+use hindsight_core::interfaces::{SimArbResultBatch, StoredArbsRanges};
 use std::{
     fs::File,
     io::{BufWriter, Write},
 };
-
 pub const EXPORT_DIR: &str = "./arbData";
 
 fn parse_filename(prefix: &str, filename: Option<String>) -> Result<String> {

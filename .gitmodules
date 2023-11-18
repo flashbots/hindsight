@@ -1,3 +1,6 @@
 [submodule "rusty-sando"]
 	path = rusty-sando
 	url = https://github.com/mouseless-eth/rusty-sando.git
+[submodule "sim/foundry"]
+	path = sim/foundry
+	url = https://github.com/foundry-rs/foundry

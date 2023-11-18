@@ -1,11 +1,9 @@
 use super::arbs::{export_arbs_core, ArbDb, ArbFilterParams, WriteEngine};
-use crate::{
-    debug,
-    interfaces::{SimArbResultBatch, StoredArbsRanges},
-    Result,
-};
+use crate::{debug, Result};
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
+use hindsight_core::interfaces::{SimArbResultBatch, StoredArbsRanges};
+
 use mongodb::bson::Document;
 use mongodb::bson::Regex;
 use mongodb::options::Tls;
@@ -36,10 +34,9 @@ pub struct MongoConfig {
 
 impl Default for MongoConfig {
     fn default() -> Self {
-        let config = crate::config::Config::default();
         Self {
-            url: config.mongo_url,
-            tls_ca_file_path: config.tls_ca_file_mongo,
+            url: "mongodb://root:example@localhost:27017".to_owned(),
+            tls_ca_file_path: None,
         }
     }
 }
@@ -254,11 +251,8 @@ mod test {
     use ethers::types::Address;
 
     use super::*;
-    use crate::{
-        config::Config,
-        interfaces::{SimArbResultBatch, TokenPair},
-        Result,
-    };
+    use crate::Result;
+    use hindsight_core::interfaces::{SimArbResultBatch, TokenPair};
 
     async fn inject_test_arbs(
         connect: &MongoConnect,
@@ -276,12 +270,7 @@ mod test {
     }
 
     async fn connect() -> Result<MongoConnect> {
-        let config = Config::default();
-        let connect = MongoConnect::new(MongoConfig {
-            url: config.mongo_url,
-            tls_ca_file_path: config.tls_ca_file_mongo,
-        })
-        .await?;
+        let connect = MongoConnect::new(MongoConfig::default()).await?;
         Ok(connect)
     }
 

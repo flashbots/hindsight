@@ -1,8 +1,8 @@
-use crate::{
+use ethers::utils::format_ether;
+use hindsight::{
     interfaces::{SimArbResultBatch, TokenPair},
     Result,
 };
-use ethers::utils::format_ether;
 use statistical::{mean, standard_deviation};
 
 /// Stats derived from a set of arbs.

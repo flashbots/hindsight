@@ -1,22 +1,48 @@
-use crate::{
-    debug, error::HindsightError, interfaces::PoolVariant, util::get_price_v3, Error, Result,
-};
+// use crate::{
+//     debug, error::HindsightError, interfaces::PoolVariant, util::get_price_v3, Error, Result,
+// };
+use crate::util::{get_price_v3, ETH_DEV_ACCOUNT};
+// use arbiter_core;
+pub use crate::fork_db::ForkDB;
 use ethers::{
     abi::{self, ParamType},
+    // middleware::gas_oracle::Cache,
     prelude::abigen,
-    types::{Address, Bytes, Transaction, TransactionRequest, I256, U256, U64},
+    types::{Address, Bytes as BytesEthers, Transaction, TransactionRequest, I256, U256, U64},
 };
+use hindsight_core::{debug, err, error::HindsightError, interfaces::PoolVariant, Error, Result};
 use revm::{
-    primitives::{ExecutionResult, Output, ResultAndState, TransactTo, B160, U256 as rU256},
+    db::CacheDB,
+    primitives::{
+        AccountInfo, Address as B160, Bytecode, Bytes, ExecutionResult, Output, ResultAndState,
+        TransactTo, B256, U256 as rU256,
+    },
     EVM,
 };
-use rusty_sando::{
-    prelude::fork_db::ForkDB,
-    simulate::{braindance_address, braindance_controller_address},
-    types::SimulationError,
-    utils::{constants::get_eth_dev, tx_builder::braindance},
-};
+
+// pub type ForkDB = CacheDB<EmptyDB>;
+
+// use rusty_sando::{
+//     prelude::fork_db::ForkDB,
+//     simulate::{braindance_address, braindance_controller_address},
+//     types::SimulationError,
+//     utils::{constants::get_eth_dev, tx_builder::braindance},
+// };
 use std::{ops::Mul, str::FromStr};
+
+pub fn inject_contract<T: revm::db::DatabaseRef>(
+    db: &mut CacheDB<T>,
+    address: Address,
+    bytecode: Bytecode,
+    bytecode_hash: B256,
+) -> Result<()> {
+    // instantiate account at given address
+    let mut account = AccountInfo::new(rU256::ZERO, 0, bytecode_hash, bytecode);
+
+    // inject contract code into db
+    db.insert_account_info(address.0.into(), account);
+    Ok(())
+}
 
 /// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.
 ///
@@ -48,12 +74,12 @@ pub fn commit_braindance_swap(
     evm.env.tx.transact_to = TransactTo::Call(braindance_address().0.into());
     evm.env.tx.data = swap_data.0;
     evm.env.tx.gas_limit = 700000;
-    evm.env.tx.gas_price = base_fee.into();
+    evm.env.tx.gas_price = u256_to_ru256(base_fee);
     evm.env.tx.value = rU256::ZERO;
 
     let res = match evm.transact_commit() {
         Ok(res) => res,
-        Err(e) => return Err(anyhow::anyhow!("failed to commit swap: {:?}", e)),
+        Err(e) => return err!("failed to commit swap: {:?}", e),
     };
     let output = match res {
         ExecutionResult::Success { output, .. } => match output {
@@ -61,24 +87,18 @@ pub fn commit_braindance_swap(
             Output::Create(o, _) => o,
         },
         ExecutionResult::Revert { output, gas_used } => {
-            return Err(anyhow::anyhow!(
-                "swap reverted: {:?} (gas used: {:?})",
-                output,
-                gas_used
-            ))
+            return err!("swap reverted: {:?} (gas used: {:?})", output, gas_used)
         }
-        ExecutionResult::Halt { reason, .. } => {
-            return Err(anyhow::anyhow!("swap halted: {:?}", reason))
-        }
+        ExecutionResult::Halt { reason, .. } => return err!("swap halted: {:?}", reason),
     };
     let (_amount_out, balance) = match pool_variant {
         PoolVariant::UniswapV2 => match braindance::decode_swap_v2_result(output.into()) {
             Ok(output) => output,
-            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
+            Err(e) => return err!("failed to decode swap result: {:?}", e),
         },
         PoolVariant::UniswapV3 => match braindance::decode_swap_v3_result(output.into()) {
             Ok(output) => output,
-            Err(e) => return Err(anyhow::anyhow!("failed to decode swap result: {:?}", e)),
+            Err(e) => return err!("failed to decode swap result: {:?}", e),
         },
     };
     Ok(balance)
@@ -140,15 +160,15 @@ pub async fn sim_price_v2(
 ) -> Result<U256> {
     // getReserves
     evm.env.tx.transact_to = TransactTo::Call(target_pool.0.into());
-    evm.env.tx.caller = get_eth_dev().0.into();
+    evm.env.tx.caller = ETH_DEV_ACCOUNT.address.0.into();
     evm.env.tx.value = rU256::ZERO;
-    evm.env.tx.data = Bytes::from_str("0x0902f1ac")?.0; // getReserves()
+    evm.env.tx.data = Bytes::from_str("0x0902f1ac")?; // getReserves()
     evm.env.tx.gas_price = rU256::from(100_000_000_000_i64);
     evm.env.tx.gas_limit = 900_000_u64;
     evm.env.tx.gas_priority_fee = Some(rU256::from(13_000_000_000_u64));
     let result = match evm.transact_ref() {
         Ok(result) => result.result,
-        Err(e) => return Err(anyhow::format_err!(SimulationError::EvmError(e))),
+        Err(e) => return err!("SimulationEvmError: {}", e), // TODO: add new error type
     };
     let output: Bytes = match result {
         ExecutionResult::Success { output, .. } => match output {
@@ -156,10 +176,10 @@ pub async fn sim_price_v2(
             Output::Create(o, _) => o.into(),
         },
         ExecutionResult::Revert { output, .. } => {
-            return Err(anyhow::format_err!(SimulationError::EvmReverted(output)))
+            return err!("SimulationEvmRevertedError: {}", output)
         }
         ExecutionResult::Halt { reason, .. } => {
-            return Err(anyhow::format_err!(SimulationError::EvmHalted(reason)))
+            return err!("SimulationEvmHaltedError: {:?}", reason)
         }
     };
 
@@ -213,12 +233,12 @@ pub async fn sim_price_v2(
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
     debug!("calling method {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
-        from: Some(get_eth_dev()),
+        from: Some(ETH_DEV_ACCOUNT.address),
         to: Some(contract.into()),
         gas: Some(U256::from(900_000_u64)),
         gas_price: Some(U256::from(1_000_000_000_000_u64)),
         value: None,
-        data: Some(Bytes::from_str(method)?),
+        data: Some(BytesEthers::from_str(method)?),
         nonce: None,
         chain_id: Some(U64::from(1)),
     };
@@ -226,7 +246,7 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
 }
 
 pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<Bytes> {
-    evm.env.tx.caller = B160::from(tx.from.unwrap_or(get_eth_dev()));
+    evm.env.tx.caller = tx.from.unwrap_or(ETH_DEV_ACCOUNT.address).0.into();
     evm.env.tx.transact_to = TransactTo::Call(B160::from(
         tx.to
             .to_owned()
@@ -250,14 +270,24 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
         .ok_or::<Error>(
             HindsightError::EvmParseError(format!("tx.data invalid ({:?})", tx.data)).into(),
         )?
-        .0;
-    evm.env.tx.value = tx.value.unwrap_or_default().into();
-    evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+        .0
+        .into();
+
+    // parse Ethers U256s `tx.value` and `tx.gas_price` to slices for rU256 encoding
+    let mut value: [u8; 32];
+    let mut gas_price: [u8; 32];
+    tx.value.unwrap_or_default().to_big_endian(&mut value);
+    tx.gas_price
+        .unwrap_or_default()
+        .to_big_endian(&mut gas_price);
+
+    evm.env.tx.value = rU256::from_be_slice(&value);
+    evm.env.tx.gas_price = rU256::from_be_slice(&gas_price);
     evm.env.tx.gas_limit = tx.gas.unwrap_or_default().as_u64();
     let res = match evm.transact_ref() {
         Ok(res) => res.result,
         Err(err) => {
-            return Err(anyhow::anyhow!("failed to simulate tx request: {:?}", err));
+            return err!("failed to simulate tx request: {:?}", err);
         }
     };
     let output: Bytes = match res {
@@ -266,34 +296,47 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
             Output::Create(o, _) => o.into(),
         },
         ExecutionResult::Revert { output, .. } => {
-            return Err(anyhow::format_err!(SimulationError::EvmReverted(output)))
+            return err!("SimulationEvmRevertedError: {}", output)
         }
         ExecutionResult::Halt { reason, .. } => {
-            return Err(anyhow::format_err!(SimulationError::EvmHalted(reason)))
+            return err!("SimulationEvmHaltedError: {:?}", reason)
         }
     };
     Ok(output)
 }
 
+/// is there not a better way?
+fn u256_to_ru256(num: U256) -> rU256 {
+    let mut bytes: [u8; 32] = [0; 32];
+    num.to_big_endian(&mut bytes);
+    rU256::from_be_slice(&bytes)
+}
+
 fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
-    evm.env.tx.caller = B160::from(tx.from);
+    evm.env.tx.caller = tx.from.0.into();
     evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
-    evm.env.tx.data = tx.input.to_owned().0;
-    evm.env.tx.value = tx.value.into();
+    evm.env.tx.data = tx.input.to_owned().0.into();
+    let mut value: [u8; 32];
+    tx.value.to_big_endian(&mut value);
+    evm.env.tx.value = rU256::from_be_slice(&value);
     evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
     evm.env.tx.gas_limit = tx.gas.as_u64();
+    let mut gas_price: [u8; 32];
+    tx.gas_price
+        .unwrap_or_default()
+        .to_big_endian(&mut gas_price);
     match tx.transaction_type {
         Some(ethers::types::U64([0])) => {
-            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+            evm.env.tx.gas_price = rU256::from_be_slice(&gas_price);
         }
         Some(_) => {
             // type-2 tx
-            evm.env.tx.gas_priority_fee = tx.max_priority_fee_per_gas.map(|fee| fee.into());
-            evm.env.tx.gas_price = tx.max_fee_per_gas.unwrap_or_default().into();
+            evm.env.tx.gas_priority_fee = tx.max_priority_fee_per_gas.map(u256_to_ru256);
+            evm.env.tx.gas_price = u256_to_ru256(tx.max_fee_per_gas.unwrap_or_default());
         }
         None => {
             // legacy tx
-            evm.env.tx.gas_price = tx.gas_price.unwrap_or_default().into();
+            evm.env.tx.gas_price = u256_to_ru256(tx.gas_price.unwrap_or_default());
         }
     }
     Ok(())
@@ -321,28 +364,29 @@ pub async fn sim_bundle(
 pub async fn commit_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ExecutionResult> {
     inject_tx(evm, &tx)?;
     let res = evm.transact_commit();
-    res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))
+    res.map_err(|err| {
+        hindsight_core::anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err)
+    })
 }
 
 pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAndState> {
     inject_tx(evm, &tx)?;
     let res = evm.transact();
-    res.map_err(|err| anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err))
+    res.map_err(|err| {
+        hindsight_core::anyhow::anyhow!("failed to simulate tx {:?}: {:?}", tx.hash, err)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
-    use crate::{
-        sim::core::fork_evm,
-        util::{get_block_info, test::get_test_ws_client},
-        Result,
-    };
+    use crate::{core::fork_evm, util::get_block_info};
     use ethers::{
         providers::Middleware,
         types::{Address, U256},
     };
+    use hindsight_core::{eth_client::test::get_test_ws_client, Result};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v2() -> Result<()> {

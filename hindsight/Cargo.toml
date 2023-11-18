@@ -1,0 +1,19 @@
+[package]
+name = "hindsight"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+data = { path = "../data" }
+sim = { path = "../sim" }
+anyhow = "1.0.71"
+ethers = {version = "2.0.7", features = ["ws"]}
+futures = "0.3.28"
+dotenvy = "0.15.7"
+mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
+# rusty-sando = {path = "../rusty-sando/bot"}
+serde = "1.0.164"
+serde_json = {version = "1.0.99", features = ["arbitrary_precision", "std", "preserve_order"]}
+tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
