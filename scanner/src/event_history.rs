@@ -1,4 +1,4 @@
-use crate::Result;
+use hindsight_core::Result;
 use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 
 const FLASHBOTS_EVENTS_API_URL: &str = "https://mev-share.flashbots.net/api/v1";

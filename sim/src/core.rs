@@ -170,7 +170,7 @@ async fn derive_trade_params(
 #[async_recursion]
 #[allow(clippy::too_many_arguments)]
 async fn step_arb(
-    client: &Arc<WsClient>,
+    client: Arc<WsClient>,
     user_tx: Transaction,
     block_info: BlockInfo,
     params: UserTradeParams,
@@ -333,6 +333,7 @@ async fn step_arb(
             best_amount_in + band_width
         },
     ];
+    let client = client.clone();
     step_arb(
         client,
         user_tx,
@@ -481,7 +482,7 @@ pub async fn find_optimal_backrun_amount_in_out(
 
                 // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
                 let res = step_arb(
-                    &client,
+                    client,
                     user_tx,
                     block_info,
                     params.to_owned(),
@@ -592,7 +593,7 @@ mod test {
     use hindsight_core::evm::fork_db::ForkDB;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-        let block_info = get_block_info(client.clone(), block_num).await?;
+        let block_info = get_block_info(client.get_provider(), block_num).await?;
         client.fork_evm(block_info.number.as_u64()).await
     }
 

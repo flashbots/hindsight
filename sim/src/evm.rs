@@ -28,7 +28,7 @@ pub fn inject_contract<T: revm::db::DatabaseRef>(
     bytecode_hash: B256,
 ) -> Result<()> {
     // instantiate account at given address
-    let mut account = AccountInfo::new(rU256::ZERO, 0, bytecode_hash, bytecode);
+    let account = AccountInfo::new(rU256::ZERO, 0, bytecode_hash, bytecode);
 
     // inject contract code into db
     db.insert_account_info(address.0.into(), account);
@@ -386,7 +386,7 @@ mod tests {
     async fn it_gets_sim_price_v2() -> Result<()> {
         let client = get_test_ws_client().await?;
         let block_info = get_block_info(
-            client.clone(),
+            client.get_provider(),
             client.provider.get_block_number().await?.as_u64(),
         )
         .await?;
@@ -404,7 +404,7 @@ mod tests {
     async fn it_gets_sim_price_v3() -> Result<()> {
         let client = get_test_ws_client().await?;
         let block_info = get_block_info(
-            client.clone(),
+            client.get_provider(),
             client.provider.get_block_number().await?.as_u64(),
         )
         .await?;

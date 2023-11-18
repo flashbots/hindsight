@@ -1,13 +1,17 @@
-use crate::data::arbs::ArbDatabase;
-use crate::data::db::DbEngine;
-use crate::event_history::event_history_url;
-use crate::hindsight::Hindsight;
-use crate::info;
-use crate::sim::processor::H256Map;
-use crate::util::{fetch_txs, filter_events_by_topic, WsClient};
-use crate::Result;
+use data::{arbs::ArbDatabase, db::DbEngine};
 use ethers::types::H256;
-use mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
+use hindsight_core::{
+    eth_client::WsClient,
+    info,
+    mev_share_sse::{EventClient, EventHistory, EventHistoryParams},
+    util::H256Map,
+    Result,
+};
+use scanner::{
+    event_history::event_history_url,
+    process_orderflow::ArbClient,
+    util::{fetch_txs, filter_events_by_topic},
+};
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -50,7 +54,6 @@ pub async fn run(
     params: ScanOptions,
     ws_client: &WsClient,
     mevshare: &EventClient,
-    hindsight: &Hindsight,
     write_db: &ArbDatabase,
 ) -> Result<()> {
     info!(
@@ -118,9 +121,8 @@ pub async fn run(
            The last iteration will process only (remaining_txs % batch_size) txs, so it's
            most efficient when (txs.len() % batch_size == 0) and/or (txs.len() much greater than batch_size).
         */
-        hindsight
-            .to_owned()
-            .process_orderflow(&txs, params.batch_size, Some(write_db.clone()), event_map)
+        ws_client
+            .simulate_arbs(&txs, params.batch_size, Some(write_db.clone()), event_map)
             .await?;
         info!("simulated arbs for {} transactions", txs.len());
         info!("offset: {:?}", event_params.offset);

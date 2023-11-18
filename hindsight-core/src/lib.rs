@@ -6,4 +6,5 @@ pub mod util;
 
 // re-exports for convenience
 pub use anyhow::{self, format_err, Error, Result};
+pub use mev_share_sse;
 pub use tracing::{debug, error as log_error, info, warn};

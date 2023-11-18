@@ -1,13 +1,11 @@
-use crate::{config::Config, info, Result};
-use data::interfaces::{BlockInfo, PairPool, PoolVariant};
 use ethers::{
-    prelude::{abigen, H160},
-    providers::{Middleware, Provider, Ws},
-    types::{transaction::eip2718::TypedTransaction, Address, Transaction, H256, U256},
+    prelude::abigen,
+    providers::Middleware,
+    types::{transaction::eip2718::TypedTransaction, Address, Transaction, H256},
 };
 use futures::future;
+use hindsight_core::{eth_client::WsClient, info, Result};
 use mev_share_sse::EventHistory;
-use std::sync::Arc;
 
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 
@@ -22,9 +20,9 @@ pub async fn fetch_txs(client: &WsClient, events: &[EventHistory]) -> Result<Vec
     let mut handles = vec![];
 
     for tx_hash in tx_hashes.into_iter() {
-        let client = client.clone();
+        let provider = client.get_provider();
         handles.push(tokio::task::spawn(async move {
-            let tx = &client.get_transaction(tx_hash.to_owned()).await;
+            let tx = &provider.get_transaction(tx_hash.to_owned()).await;
             if let Ok(tx) = tx {
                 if let Some(tx) = tx {
                     info!("tx found onchain\t{:?}", tx_hash.to_owned());
@@ -59,7 +57,7 @@ pub async fn get_balance_call(
             function balanceOf(address account) external view returns (uint256)
         ]"#
     );
-    let contract = IERC20::new(token, client.clone());
+    let contract = IERC20::new(token, client.get_provider());
     Ok(contract.balance_of(account).tx)
 }
 

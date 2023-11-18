@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 data = { path = "../data" }
-hindsight_core = { path = "../hindsight_core" }
+hindsight-core = { path = "../hindsight-core" }
 foundry-contracts.workspace = true
 
 async-recursion = "1.0.4"

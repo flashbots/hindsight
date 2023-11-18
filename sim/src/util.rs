@@ -63,7 +63,7 @@ pub async fn get_pair_tokens(client: &WsClient, pair: Address) -> Result<(Addres
             function token1() external view returns (address)
         ]"#
     );
-    let contract = IPairTokens::new(pair, client.clone());
+    let contract = IPairTokens::new(pair, client.get_provider());
     let token0 = contract.token_0().call().await?;
     let token1 = contract.token_1().call().await?;
     Ok((token0, token1))
@@ -76,7 +76,7 @@ pub async fn get_decimals(client: &WsClient, token: Address) -> Result<U256> {
             function decimals() external view returns (uint256)
         ]"#
     );
-    let contract = IERC20::new(token, client.clone());
+    let contract = IERC20::new(token, client.get_provider());
     let decimals = contract.decimals().call().await?;
     Ok(decimals)
 }
@@ -92,11 +92,11 @@ async fn get_v2_pairs(client: &WsClient, pair_tokens: (Address, Address)) -> Res
     );
     let uni_factory = IUniswapV2Factory::new(
         "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f".parse::<H160>()?,
-        client.clone(),
+        client.get_provider(),
     );
     let sushi_factory = IUniswapV2Factory::new(
         "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac".parse::<H160>()?,
-        client.clone(),
+        client.get_provider(),
     );
 
     let uni_pair: Result<Address, _> = uni_factory
@@ -148,7 +148,7 @@ pub async fn get_all_trading_pools(
     let mut all_pairs = vec![];
     // push v3 pair (there should only be one for a given fee, which we hard-code to 3000 in get_v3_pair)
     all_pairs.push(PairPool {
-        address: get_v3_pair(client.clone(), pair_tokens).await?,
+        address: get_v3_pair(client.get_provider(), pair_tokens).await?,
         variant: PoolVariant::UniswapV3,
     });
     // v2 pairs pull from multiple v2 clones

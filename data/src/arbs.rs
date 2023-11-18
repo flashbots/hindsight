@@ -1,17 +1,16 @@
-use futures::future::join_all;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
 use super::db::DbEngine;
 use crate::{db::Db, debug, file::FileWriter};
 use async_trait::async_trait;
 use deadqueue::unlimited::Queue;
 use ethers::{types::U256, utils::format_ether};
+use futures::future::join_all;
 use hindsight_core::{
     info,
     interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
     Result,
 };
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 const NUM_ARBS_PER_READ: i64 = 3000;
 

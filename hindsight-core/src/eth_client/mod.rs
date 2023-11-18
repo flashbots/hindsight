@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 pub type WsProvider = Provider<Ws>;
 
+#[derive(Clone, Debug)]
 pub struct WsClient {
     pub provider: WsProvider,
 }
@@ -34,7 +35,8 @@ impl WsClient {
         Ok(Self { provider })
     }
 
-    pub fn clone(&self) -> Arc<WsProvider> {
+    /// this feels hacky... is there a better way to do this?
+    pub fn get_provider(&self) -> Arc<WsProvider> {
         Arc::new(self.provider.clone())
     }
 
@@ -68,10 +70,11 @@ impl WsClient {
         let block_traces = self.get_block_traces(&block).await?;
         let state_diff = StateDiff::from_block_traces(block_traces).await?;
         let cache_db = state_diff
-            .to_cache_db(&self.clone(), Some(block_num.into()))
+            .to_cache_db(&self.get_provider(), Some(block_num.into()))
             .await?;
 
-        let mut fork_factory = ForkFactory::new_sandbox_factory(self.clone(), cache_db, fork_block);
+        let mut fork_factory =
+            ForkFactory::new_sandbox_factory(self.get_provider(), cache_db, fork_block);
 
         // TODO: replace this
         // attach_braindance_module(&mut fork_factory);
@@ -81,6 +84,8 @@ impl WsClient {
         set_block_state(&mut evm, &block.into());
         Ok(evm)
     }
+    // TODO: migrate from util.rs to this impl: all methods
+    // taking a WsClient argument
 }
 
 impl From<WsProvider> for WsClient {
@@ -88,13 +93,6 @@ impl From<WsProvider> for WsClient {
         Self { provider }
     }
 }
-
-// pub async fn get_ws_client(rpc_url: Option<String>, max_reconnects: usize) -> Result<WsClient> {
-
-// }
-
-// TODO: make a wrapper struct and migrate all methods from util.rs that require a WsClient
-// to its impl
 
 // #[cfg(test)]
 pub mod test {

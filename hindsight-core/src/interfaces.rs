@@ -1,6 +1,15 @@
 use ethers::types::{Address, Block, Transaction, I256, U256, U64};
 use mev_share_sse::EventHistory;
 use serde::{self, Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub rpc_url_ws: String,
+    pub mongo_url: String,
+    pub postgres_url: Option<String>,
+    pub tls_ca_file_mongo: Option<PathBuf>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

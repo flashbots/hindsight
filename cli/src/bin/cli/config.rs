@@ -1,18 +1,14 @@
-use hindsight_core::debug;
-use std::{env, path::PathBuf};
+use hindsight_core::{debug, format_err, interfaces::Config};
+use std::env;
 
-#[derive(Clone, Debug)]
-pub(super) struct Config {
-    pub rpc_url_ws: String,
-    pub mongo_url: String,
-    pub postgres_url: Option<String>,
-    pub tls_ca_file_mongo: Option<PathBuf>,
+pub trait DotEnv {
+    fn from_env() -> Self;
 }
 
-impl Default for Config {
-    fn default() -> Config {
+impl DotEnv for Config {
+    fn from_env() -> Self {
         let env_file_res = dotenvy::dotenv()
-            .map_err(|err| anyhow::anyhow!("Failed to load .env file. Error: {}", err));
+            .map_err(|err| format_err!("Failed to load .env file. Error: {}", err));
         if let Err(err) = env_file_res {
             debug!("{}", err);
         }

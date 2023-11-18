@@ -1,5 +1,5 @@
 use ethers::utils::format_ether;
-use hindsight::{
+use hindsight_core::{
     interfaces::{SimArbResultBatch, TokenPair},
     Result,
 };

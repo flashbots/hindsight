@@ -1,5 +1,5 @@
 [package]
-name = "hindsight"
+name = "scanner"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,8 +8,9 @@ edition = "2021"
 [dependencies]
 data = { path = "../data" }
 sim = { path = "../sim" }
-# hindsight_core = { path = "../hindsight-core" }
-anyhow = "1.0.71"
+hindsight-core = { path = "../hindsight-core" }
+
+async-trait = "0.1.73"
 ethers = {version = "2.0.7", features = ["ws"]}
 futures = "0.3.28"
 dotenvy = "0.15.7"

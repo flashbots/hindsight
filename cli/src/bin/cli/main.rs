@@ -1,25 +1,39 @@
-use crate::cli_core::{
-    commands::{self},
-    data::{
-        arbs::{ArbFilterParams, WriteEngine},
-        db::Db,
-    },
-    // debug,
-    hindsight::Hindsight,
-    info,
-    interfaces::TokenPair,
-    util::{get_ws_client, weth},
+mod config;
+mod core;
+
+// use core::{
+//     commands::{self},
+//     data::{
+//         arbs::{ArbFilterParams, WriteEngine},
+//         db::Db,
+//     },
+//     // debug,
+//     hindsight::Hindsight,
+//     info,
+//     interfaces::TokenPair,
+//     util::{get_ws_client, weth},
+// };
+use crate::core::{commands, Cli, Commands};
+use config::DotEnv;
+use data::{
+    arbs::{ArbFilterParams, WriteEngine},
+    db::Db,
 };
 use ethers::{types::H160, utils::parse_ether};
-use mev_share_sse::EventClient;
+use hindsight_core::{
+    eth_client::WsClient,
+    info,
+    interfaces::{Config, TokenPair},
+    mev_share_sse::EventClient,
+    util::weth,
+};
 use std::thread::available_parallelism;
-mod cli_core;
-use cli_core::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse_args();
+    let config = Config::from_env();
 
     ctrlc::set_handler(move || {
         println!("\nstopping hindsight!");
@@ -28,9 +42,8 @@ async fn main() -> anyhow::Result<()> {
     .expect("Error setting Ctrl-C handler");
 
     let max_reconnects = cli.ws_max_reconnects.unwrap_or_default();
-    let ws_client = get_ws_client(None, max_reconnects).await?;
+    let ws_client = WsClient::new(Some(config.rpc_url_ws), max_reconnects).await?;
     let mevshare = EventClient::default();
-    let hindsight = Hindsight::new(ws_client.clone()).await?;
 
     match cli.command {
         Some(Commands::Scan {
@@ -83,14 +96,8 @@ async fn main() -> anyhow::Result<()> {
                 batch_size,
                 db_engine,
             };
-            commands::scan::run(
-                scan_options.to_owned(),
-                &ws_client,
-                &mevshare,
-                &hindsight,
-                &db.connect,
-            )
-            .await?;
+            commands::scan::run(scan_options.to_owned(), &ws_client, &mevshare, &db.connect)
+                .await?;
         }
         Some(Commands::Export {
             // cli args:

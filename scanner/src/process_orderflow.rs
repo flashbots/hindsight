@@ -1,27 +1,48 @@
-use crate::{info, util::WsClient, Result};
-use data::arbs::ArbDatabase;
-use ethers::types::Transaction;
-use futures::future;
-use mev_share_sse::EventHistory;
-use sim::processor::{simulate_backrun_arbs, H256Map};
+use std::sync::Arc;
 
-/// Transaction processor for hindsight. Requires a websocket connection to an archive node.
-#[derive(Clone, Debug)]
-pub struct Hindsight {
-    pub client: WsClient,
+use async_trait::async_trait;
+use data::arbs::ArbDatabase;
+use ethers::{
+    middleware::Middleware,
+    types::{Transaction, U256},
+};
+use futures::future;
+use hindsight_core::{
+    error::HindsightError,
+    eth_client::WsClient,
+    info,
+    interfaces::{BlockInfo, SimArbResultBatch},
+    util::H256Map,
+    Error, Result,
+};
+use mev_share_sse::EventHistory;
+use sim::core::find_optimal_backrun_amount_in_out;
+
+#[async_trait]
+pub trait ArbClient {
+    async fn simulate_arbs(
+        &self,
+        txs: &Vec<Transaction>,
+        batch_size: usize,
+        db: Option<ArbDatabase>,
+        event_map: H256Map<EventHistory>,
+    ) -> Result<()>;
+
+    async fn backrun_tx(
+        &self,
+        tx: Transaction,
+        event_map: &H256Map<EventHistory>,
+    ) -> Result<SimArbResultBatch>;
 }
 
-impl Hindsight {
-    pub async fn new(ws_client: WsClient) -> Result<Self> {
-        Ok(Self { client: ws_client })
-    }
-
+#[async_trait]
+impl ArbClient for WsClient {
     /// For each tx in `txs`, simulates an optimal backrun-arbitrage in a parallel thread,
     /// caching results in batches of size `batch_size`.
     ///
     /// Saves results into `db` after each batch is processed. Returns when all txs are processed.
-    pub async fn process_orderflow(
-        self,
+    async fn simulate_arbs(
+        &self,
         txs: &Vec<Transaction>,
         batch_size: usize,
         db: Option<ArbDatabase>,
@@ -41,9 +62,9 @@ impl Hindsight {
             info!("processing {} txs", txs_batch.len());
             for tx in txs_batch {
                 let event_map = event_map.clone();
-                let client = self.client.clone();
+                let client = Arc::new(self.to_owned());
                 handlers.push(tokio::task::spawn(async move {
-                    simulate_backrun_arbs(&client, tx, &event_map).await.ok()
+                    client.backrun_tx(tx, &event_map).await.ok()
                 }));
             }
             let results = future::join_all(handlers).await;
@@ -61,6 +82,60 @@ impl Hindsight {
         }
         Ok(())
     }
+
+    /// Simulate a backrun-arbitrage on a single tx.
+    ///
+    /// `event_map` should be a map of tx hashes to their corresponding event history entries.
+    async fn backrun_tx(
+        &self,
+        tx: Transaction,
+        event_map: &H256Map<EventHistory>,
+    ) -> Result<SimArbResultBatch> {
+        let event = event_map
+            .get(&tx.hash)
+            .ok_or(HindsightError::EventNotCached(tx.hash))?;
+        let sim_block_num = tx
+            .block_number
+            .ok_or(HindsightError::TxNotLanded(tx.hash))?;
+
+        // we're simulating txs that have already landed, so we want the block prior to when the tx landed
+        let sim_block_num = sim_block_num.as_u64() - 1;
+        let block = self
+            .provider
+            .get_block(sim_block_num)
+            .await?
+            .ok_or::<Error>(HindsightError::BlockNotFound(sim_block_num).into())?;
+        let block_info = BlockInfo {
+            number: sim_block_num.into(),
+            timestamp: block.timestamp,
+            base_fee_per_gas: block.base_fee_per_gas.unwrap_or(1_000_000_000.into()),
+            gas_limit: Some(block.gas_limit),
+            gas_used: Some(block.gas_used),
+        };
+
+        let res =
+            find_optimal_backrun_amount_in_out(Arc::new(self.clone()), tx, event, &block_info)
+                .await?;
+        let mut max_profit = U256::from(0);
+        /*
+           Sum up the profit from each result. Generally there should only be one result, but if
+           there are >1 results, we assume that we'd do both backruns in one tx.
+        */
+        for res in &res {
+            if res.backrun_trade.profit > max_profit {
+                info!(
+                    "sim was profitable: input={:?}\tend_balance={:?}",
+                    res.backrun_trade.amount_in, res.backrun_trade.balance_end
+                );
+                max_profit = res.backrun_trade.profit;
+            }
+        }
+        Ok(SimArbResultBatch {
+            event: event.to_owned(),
+            max_profit,
+            results: res,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -68,21 +143,19 @@ mod tests {
     use ethers::{providers::Middleware, types::H256};
     use serde_json::json;
 
-    use crate::{
-        data::{
-            arbs::ArbFilterParams,
-            db::{Db, DbEngine},
-            MongoConfig,
-        },
-        util::get_ws_client,
+    use data::{
+        arbs::ArbFilterParams,
+        db::{Db, DbEngine},
+        MongoConfig,
     };
+    use hindsight_core::eth_client::test::get_test_ws_client;
 
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_processes_orderflow() -> Result<()> {
-        let client = get_ws_client(None, 1).await?;
-        let hindsight = Hindsight::new(client).await?;
+        let client = get_test_ws_client().await?;
+        // let hindsight = Hindsight::new(client).await?;
 
         // data from an actual juicy event
         let juicy_event: EventHistory = serde_json::from_value(json!({
@@ -121,8 +194,9 @@ mod tests {
         }))?;
         let juicy_tx_hash: H256 =
             "0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a".parse::<H256>()?;
-        let juicy_tx = get_ws_client(None, 1)
+        let juicy_tx = get_test_ws_client()
             .await?
+            .provider
             .get_transaction(juicy_tx_hash)
             .await?
             .expect("failed to find juicy tx on chain");
@@ -133,8 +207,8 @@ mod tests {
         let test_db = Db::new(DbEngine::Mongo(MongoConfig::default())).await;
 
         // run the sim, it will save a result to the "test" DB
-        hindsight
-            .process_orderflow(
+        client
+            .simulate_arbs(
                 vec![juicy_tx].as_ref(),
                 1,
                 Some(test_db.connect.clone()),

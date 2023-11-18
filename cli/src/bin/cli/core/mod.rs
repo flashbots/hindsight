@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use hindsight::data::db::DbEngine;
+use data::db::DbEngine;
+
+pub(super) mod commands;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
