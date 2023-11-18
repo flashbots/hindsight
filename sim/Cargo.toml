@@ -8,12 +8,8 @@ edition = "2021"
 [dependencies]
 data = { path = "../data" }
 hindsight_core = { path = "../hindsight_core" }
-
-# rusty-sando = {path = "../rusty-sando/bot"}
-
-# arbiter-core = "0.8.0"
 async-recursion = "1.0.4"
-ethers = {version = "=2.0.9", features = ["ws"]}
+ethers = {version = "2.0.10", features = ["ws"]}
 futures = "0.3.28"
 lazy_static = "1.4.0"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}

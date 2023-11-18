@@ -15,16 +15,10 @@ use futures::future;
 use hindsight_core::anyhow;
 use hindsight_core::error::HindsightError;
 use hindsight_core::eth_client::WsClient;
-use hindsight_core::{debug, err, info, Error, Result};
+use hindsight_core::{debug, info, Result};
 use mev_share_sse::{EventHistory, EventTransactionLog};
 use revm::primitives::{Address as rAddress, U256 as rU256};
 use revm::EVM;
-// use rusty_sando::prelude::fork_db::ForkDB;
-// use rusty_sando::simulate::{
-//     attach_braindance_module, braindance_starting_balance, setup_block_state,
-// };
-// use rusty_sando::types::BlockInfo;
-// use rusty_sando::{forked_db::fork_factory::ForkFactory, utils::state_diff};
 use std::str::FromStr;
 
 const MAX_DEPTH: usize = 7;
@@ -54,14 +48,6 @@ pub async fn fork_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> 
     let fork_block_num = BlockNumber::Number(block_num.into());
     let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
 
-    // let block_txs = client.get_block_with_txs(block_hash_or_number)
-
-    // let state_diffs =
-    //     if let Some(sd) = state_diff::get_from_txs(client, &vec![], fork_block_num).await {
-    //         sd
-    //     } else {
-    //         BTreeMap::<H160, AccountDiff>::new()
-    //     };
     let state_diff = StateDiff::from_block(client, block_num).await?;
     let cache_db = state_diff.to_cache_db(Some(block_num.into())).await?;
 
