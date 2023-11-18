@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
 use data::interfaces::{PairPool, PoolVariant};
 use ethers::{
     middleware::Middleware,
     prelude::{abigen, H160},
     types::{Address, H256, U256},
 };
-use hindsight_core::{eth_client::WsClient, interfaces::BlockInfo, Result};
+use hindsight_core::{
+    eth_client::{WsClient, WsProvider},
+    interfaces::BlockInfo,
+    Result,
+};
 use lazy_static::lazy_static;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
@@ -113,7 +119,10 @@ async fn get_v2_pairs(client: &WsClient, pair_tokens: (Address, Address)) -> Res
 }
 
 /// Get the v3 pair address by calling `get_pool` on the contract via `eth_call`.
-async fn get_v3_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Result<Address> {
+async fn get_v3_pair(
+    provider: Arc<WsProvider>,
+    pair_tokens: (Address, Address),
+) -> Result<Address> {
     abigen!(
         IUniswapV3Factory,
         r#"[
@@ -122,7 +131,7 @@ async fn get_v3_pair(client: &WsClient, pair_tokens: (Address, Address)) -> Resu
     );
     let contract = IUniswapV3Factory::new(
         "0x1F98431c8aD98523631AE4a59f267346ea31F984".parse::<H160>()?,
-        client.clone(),
+        provider,
     );
     Ok(contract
         .get_pool(pair_tokens.0, pair_tokens.1, 3000)
@@ -139,11 +148,11 @@ pub async fn get_all_trading_pools(
     let mut all_pairs = vec![];
     // push v3 pair (there should only be one for a given fee, which we hard-code to 3000 in get_v3_pair)
     all_pairs.push(PairPool {
-        address: get_v3_pair(client, pair_tokens).await?,
+        address: get_v3_pair(client.clone(), pair_tokens).await?,
         variant: PoolVariant::UniswapV3,
     });
     // v2 pairs pull from multiple v2 clones
-    let v2_pairs = get_v2_pairs(client, pair_tokens).await?;
+    let v2_pairs = get_v2_pairs(&client, pair_tokens).await?;
     all_pairs.append(
         &mut v2_pairs
             .into_iter()
@@ -156,8 +165,8 @@ pub async fn get_all_trading_pools(
     Ok(all_pairs)
 }
 
-pub async fn get_block_info(client: &WsClient, block_num: u64) -> Result<BlockInfo> {
-    let block = client
+pub async fn get_block_info(provider: Arc<WsProvider>, block_num: u64) -> Result<BlockInfo> {
+    let block = provider
         .get_block(block_num)
         .await?
         .ok_or(hindsight_core::anyhow::format_err!(

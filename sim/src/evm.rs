@@ -1,12 +1,6 @@
-// use crate::{
-//     debug, error::HindsightError, interfaces::PoolVariant, util::get_price_v3, Error, Result,
-// };
 use crate::util::{get_price_v3, BRAINDANCE_ADDR, CONTROLLER_ADDR, ETH_DEV_ACCOUNT};
-// use arbiter_core;
-pub use crate::fork_db::ForkDB;
 use ethers::{
     abi::{self, AbiDecode, AbiEncode, ParamType},
-    // middleware::gas_oracle::Cache,
     prelude::abigen,
     types::{Address, Bytes as BytesEthers, Transaction, TransactionRequest, I256, U256, U64},
 };
@@ -14,24 +8,17 @@ use foundry_contracts::brain_dance::{
     BrainDanceCalls, CalculateSwapV2Call, CalculateSwapV2Return, CalculateSwapV3Call,
     CalculateSwapV3Return,
 };
-use hindsight_core::{debug, err, error::HindsightError, interfaces::PoolVariant, Error, Result};
+use hindsight_core::{
+    debug, err, error::HindsightError, evm::fork_db::ForkDB, interfaces::PoolVariant, Error, Result,
+};
 use revm::{
     db::CacheDB,
     primitives::{
-        AccountInfo, Address as B160, Bytecode, Bytes, ExecutionResult, Output, ResultAndState,
+        AccountInfo, Address as rAddress, Bytecode, Bytes, ExecutionResult, Output, ResultAndState,
         TransactTo, B256, U256 as rU256,
     },
     EVM,
 };
-
-// pub type ForkDB = CacheDB<EmptyDB>;
-
-// use rusty_sando::{
-//     prelude::fork_db::ForkDB,
-//     simulate::{braindance_address, braindance_controller_address},
-//     types::SimulationError,
-//     utils::{constants::get_eth_dev, tx_builder::braindance},
-// };
 use std::{ops::Mul, str::FromStr};
 
 pub fn inject_contract<T: revm::db::DatabaseRef>(
@@ -254,7 +241,7 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
 
 pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<Bytes> {
     evm.env.tx.caller = tx.from.unwrap_or(ETH_DEV_ACCOUNT.address).0.into();
-    evm.env.tx.transact_to = TransactTo::Call(B160::from(
+    evm.env.tx.transact_to = TransactTo::Call(rAddress::from(
         tx.to
             .to_owned()
             .ok_or::<Error>(
@@ -281,8 +268,8 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
         .into();
 
     // parse Ethers U256s `tx.value` and `tx.gas_price` to slices for rU256 encoding
-    let mut value: [u8; 32];
-    let mut gas_price: [u8; 32];
+    let mut value: [u8; 32] = [0; 32];
+    let mut gas_price: [u8; 32] = [0; 32];
     tx.value.unwrap_or_default().to_big_endian(&mut value);
     tx.gas_price
         .unwrap_or_default()
@@ -321,14 +308,14 @@ fn u256_to_ru256(num: U256) -> rU256 {
 
 fn inject_tx(evm: &mut EVM<ForkDB>, tx: &Transaction) -> Result<()> {
     evm.env.tx.caller = tx.from.0.into();
-    evm.env.tx.transact_to = TransactTo::Call(B160::from(tx.to.unwrap_or_default().0));
+    evm.env.tx.transact_to = TransactTo::Call(rAddress::from(tx.to.unwrap_or_default().0));
     evm.env.tx.data = tx.input.to_owned().0.into();
-    let mut value: [u8; 32];
+    let mut value: [u8; 32] = [0; 32];
     tx.value.to_big_endian(&mut value);
     evm.env.tx.value = rU256::from_be_slice(&value);
     evm.env.tx.chain_id = tx.chain_id.map(|id| id.as_u64());
     evm.env.tx.gas_limit = tx.gas.as_u64();
-    let mut gas_price: [u8; 32];
+    let mut gas_price: [u8; 32] = [0; 32];
     tx.gas_price
         .unwrap_or_default()
         .to_big_endian(&mut gas_price);
@@ -388,7 +375,7 @@ pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAnd
 mod tests {
     use std::str::FromStr;
 
-    use crate::{core::fork_evm, util::get_block_info};
+    use crate::util::get_block_info;
     use ethers::{
         providers::Middleware,
         types::{Address, U256},
@@ -398,8 +385,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v2() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
-        let mut evm = fork_evm(&client, block_info.number.as_u64()).await?;
+        let block_info = get_block_info(
+            client.clone(),
+            client.provider.get_block_number().await?.as_u64(),
+        )
+        .await?;
+        let mut evm = client.fork_evm(block_info.number.as_u64()).await?;
         let target_pool = Address::from_str("0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f")?; // UniV2 SHIB/WETH
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
@@ -412,8 +403,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v3() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_info = get_block_info(&client, client.get_block_number().await?.as_u64()).await?;
-        let mut evm = fork_evm(&client, block_info.number.as_u64()).await?;
+        let block_info = get_block_info(
+            client.clone(),
+            client.provider.get_block_number().await?.as_u64(),
+        )
+        .await?;
+        let mut evm = client.fork_evm(block_info.number.as_u64()).await?;
         let target_pool = Address::from_str("0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec")?; // UniV3 SHIB/WETH (fee=3000)
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB

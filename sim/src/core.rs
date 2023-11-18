@@ -1,7 +1,4 @@
 use crate::evm::{commit_braindance_swap, sim_bundle, sim_price_v2, sim_price_v3};
-use crate::fork_db::ForkDB;
-use crate::fork_factory::ForkFactory;
-use crate::state_diff::StateDiff;
 use crate::util::{
     get_all_trading_pools, get_decimals, get_pair_tokens, get_price_v2, get_price_v3,
 };
@@ -10,16 +7,13 @@ use data::interfaces::{
     BackrunResult, BlockInfo, PairPool, PoolVariant, SimArbResult, TokenPair, UserTradeParams,
 };
 use ethers::providers::Middleware;
-use ethers::types::{Address, BlockNumber, Transaction, H160, H256, I256, U256};
+use ethers::types::{Address, Transaction, H160, H256, I256, U256};
 use futures::future;
-use hindsight_core::anyhow;
-use hindsight_core::error::HindsightError;
-use hindsight_core::eth_client::WsClient;
-use hindsight_core::{debug, info, Result};
+use hindsight_core::evm::fork_db::ForkDB;
+use hindsight_core::{anyhow, debug, error::HindsightError, eth_client::WsClient, info, Result};
 use mev_share_sse::{EventHistory, EventTransactionLog};
-use revm::primitives::{Address as rAddress, U256 as rU256};
 use revm::EVM;
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 const MAX_DEPTH: usize = 7;
 const STEP_INTERVALS: usize = 15;
@@ -28,43 +22,11 @@ fn braindance_starting_balance() -> U256 {
     U256::from(10u64).pow(18.into()) * 420
 }
 
-fn set_block_state(evm: &mut EVM<ForkDB>, block_info: &BlockInfo) {
-    evm.env.block.number = rU256::from(block_info.number.as_u64());
-    evm.env.block.timestamp = rU256::from(block_info.timestamp.as_u64());
-    let mut basefee_slice = [0u8; 32];
-    block_info
-        .base_fee_per_gas
-        .to_big_endian(&mut basefee_slice);
-    evm.env.block.basefee = rU256::from_be_bytes(basefee_slice);
-    // use something other than default
-    evm.env.block.coinbase =
-        rAddress::from_str("0xC0ffeeFee15BAD00000000000000000000000000").unwrap();
-}
-
-/// Return an evm instance forked from the provided block info and client state
-/// with braindance module initialized.
-/// Braindance contracts starts w/ braindance_starting_balance, which is 420 WETH.
-pub async fn fork_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-    let fork_block_num = BlockNumber::Number(block_num.into());
-    let fork_block = Some(ethers::types::BlockId::Number(fork_block_num));
-
-    let state_diff = StateDiff::from_block(client, block_num).await?;
-    let cache_db = state_diff.to_cache_db(Some(block_num.into())).await?;
-
-    let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), cache_db, fork_block);
-    attach_braindance_module(&mut fork_factory);
-
-    let mut evm = EVM::new();
-    evm.database(fork_factory.new_sandbox_fork());
-    set_block_state(&mut evm, &state_diff.block.into());
-    Ok(evm)
-}
-
 /// Returns None if trade params can't be derived.
 ///
 /// May derive multiple trades from a single tx.
 async fn derive_trade_params(
-    client: &WsClient,
+    client: Arc<WsClient>,
     tx: Transaction,
     event: &EventHistory,
 ) -> Result<Vec<UserTradeParams>> {
@@ -91,6 +53,7 @@ async fn derive_trade_params(
     debug!("swap logs {:?}", swap_logs);
     // derive trade direction from (full) tx logs
     let tx_receipt = client
+        .provider
         .get_transaction_receipt(tx.hash)
         .await?
         .ok_or(HindsightError::TxNotLanded(tx.hash))?;
@@ -119,11 +82,11 @@ async fn derive_trade_params(
 
         // get token addrs from pool address
         // tokens may vary per swap log -- many swaps can happen in one tx
-        let (token0, token1) = get_pair_tokens(client, pool_address).await?;
+        let (token0, token1) = get_pair_tokens(&client.clone(), pool_address).await?;
         debug!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
         let token0_is_weth =
             token0 == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse::<H160>()?;
-        let token0_decimals = get_decimals(client, token0).await?;
+        let token0_decimals = get_decimals(&client, token0).await?;
 
         // if a Sync event (UniV2) is detected from the tx logs, it can be used to get the new price
         let sync_log: Option<_> = tx_receipt
@@ -178,7 +141,7 @@ async fn derive_trade_params(
         let token_in = if swap_0_for_1 { token0 } else { token1 };
         let token_out = if swap_0_for_1 { token1 } else { token0 };
         // find all pairs that aren't the one that the user swapped on
-        let arb_pools: Vec<PairPool> = get_all_trading_pools(client, (token_in, token_out))
+        let arb_pools: Vec<PairPool> = get_all_trading_pools(&client, (token_in, token_out))
             .await?
             .into_iter()
             .filter(|pool| !pool.address.is_zero())
@@ -207,7 +170,7 @@ async fn derive_trade_params(
 #[async_recursion]
 #[allow(clippy::too_many_arguments)]
 async fn step_arb(
-    client: WsClient,
+    client: &Arc<WsClient>,
     user_tx: Transaction,
     block_info: BlockInfo,
     params: UserTradeParams,
@@ -300,7 +263,7 @@ async fn step_arb(
         let client = client.clone();
         // spawn the task, hold on to its handle
         handles.push(tokio::task::spawn(async move {
-            let evm = fork_evm(&client, block_info.number.as_u64()).await?;
+            let evm = client.fork_evm(block_info.number.as_u64()).await?;
             sim_arb_single(
                 evm,
                 user_tx,
@@ -387,13 +350,13 @@ async fn step_arb(
 
 /// Find the optimal backrun for a given tx.
 pub async fn find_optimal_backrun_amount_in_out(
-    client: &WsClient,
+    client: Arc<WsClient>,
     user_tx: Transaction,
     event: &EventHistory,
     block_info: &BlockInfo,
 ) -> Result<Vec<SimArbResult>> {
     let start_balance = braindance_starting_balance();
-    let params = derive_trade_params(client, user_tx.to_owned(), event).await?;
+    let params = derive_trade_params(client.clone(), user_tx.to_owned(), event).await?;
     info!("params {:?}", params);
 
     // look at price (TKN/ETH) on each exchange to determine which exchange to arb on
@@ -440,7 +403,8 @@ pub async fn find_optimal_backrun_amount_in_out(
             let params = params.clone();
             /* SPAWN A NEW (GREEN) THREAD */
             let handle = tokio::task::spawn(async move {
-                let mut evm = fork_evm(&client, block_info.number.as_u64())
+                let mut evm = client
+                    .fork_evm(block_info.number.as_u64())
                     .await
                     .expect("failed to fork evm");
 
@@ -517,7 +481,7 @@ pub async fn find_optimal_backrun_amount_in_out(
 
                 // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
                 let res = step_arb(
-                    client.clone(),
+                    &client,
                     user_tx,
                     block_info,
                     params.to_owned(),
@@ -625,10 +589,11 @@ mod test {
     use anyhow::Result;
     use ethers::providers::Middleware;
     use hindsight_core::eth_client::test::get_test_ws_client;
+    use hindsight_core::evm::fork_db::ForkDB;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-        let block_info = get_block_info(client, block_num).await?;
-        fork_evm(client, block_info.number.as_u64()).await
+        let block_info = get_block_info(client.clone(), block_num).await?;
+        client.fork_evm(block_info.number.as_u64()).await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -637,7 +602,7 @@ mod test {
         let tx_hash =
             H256::from_str("0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a")
                 .unwrap();
-        let tx = client.get_transaction(tx_hash).await?.unwrap();
+        let tx = client.provider.get_transaction(tx_hash).await?.unwrap();
         let block_num = tx.block_number.unwrap() - 1;
         let mut evm = setup_test_evm(&client, block_num.as_u64()).await?;
         let res = sim_bundle(&mut evm, vec![tx]).await;
@@ -650,7 +615,7 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_swaps() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_num = client.get_block_number().await?;
+        let block_num = client.provider.get_block_number().await?;
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)

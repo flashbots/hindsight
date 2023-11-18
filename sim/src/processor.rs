@@ -12,12 +12,12 @@ use hindsight_core::{
 };
 use mev_share_sse::EventHistory;
 // use rusty_sando::types::BlockInfo;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 pub type H256Map<T> = HashMap<H256, T>;
 
 pub async fn simulate_backrun_arbs(
-    client: &WsClient,
+    client: Arc<WsClient>,
     tx: Transaction,
     event_map: &H256Map<EventHistory>,
 ) -> Result<SimArbResultBatch> {
@@ -31,6 +31,7 @@ pub async fn simulate_backrun_arbs(
     // we're simulating txs that have already landed, so we want the block prior to when the tx landed
     let sim_block_num = sim_block_num.as_u64() - 1;
     let block = client
+        .provider
         .get_block(sim_block_num)
         .await?
         .ok_or::<Error>(HindsightError::BlockNotFound(sim_block_num).into())?;

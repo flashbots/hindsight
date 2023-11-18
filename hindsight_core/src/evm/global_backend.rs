@@ -1,11 +1,11 @@
 // credit to Foundry's SharedBackend implmenetation:
 // https://github.com/foundry-rs/foundry/blob/master/evm/src/executor/fork/backend.rs
+use crate::Result;
 use ethers::{
     providers::{Middleware, Provider, ProviderError, Ws},
     types::{Address, BigEndianHash, BlockId, H256, U256},
     utils::keccak256,
 };
-use eyre::Result;
 use futures::{
     channel::mpsc::Receiver,
     task::{Context, Poll},
@@ -282,10 +282,10 @@ impl Future for GlobalBackend {
                             let (balance, nonce, code) = match resp {
                                 Ok(res) => res,
                                 Err(err) => {
-                                    let err = Arc::new(eyre::Error::new(err));
+                                    let err = Arc::new(crate::format_err!(err));
                                     if let Some(listeners) = pin.account_requests.remove(&addr) {
                                         listeners.into_iter().for_each(|l| {
-                                            let _ = l.send(Err(eyre::format_err!(
+                                            let _ = l.send(Err(crate::format_err!(
                                                 "GetAccount failed (address={}): {}",
                                                 addr,
                                                 err
@@ -327,12 +327,12 @@ impl Future for GlobalBackend {
                                 Ok(value) => value,
                                 Err(err) => {
                                     // notify all listeners
-                                    let err = Arc::new(eyre::Error::new(err));
+                                    let err = Arc::new(crate::Error::new(err));
                                     if let Some(listeners) =
                                         pin.storage_requests.remove(&(addr, idx))
                                     {
                                         listeners.into_iter().for_each(|l| {
-                                            let _ = l.send(Err(eyre::format_err!(
+                                            let _ = l.send(Err(crate::format_err!(
                                                 "GetStorage failed (addr={}); {}",
                                                 addr,
                                                 err
@@ -360,11 +360,11 @@ impl Future for GlobalBackend {
                             let value = match block_hash {
                                 Ok(value) => value,
                                 Err(err) => {
-                                    let err = Arc::new(eyre::Error::new(err));
+                                    let err = Arc::new(crate::Error::new(err));
                                     // notify all listeners
                                     if let Some(listeners) = pin.block_requests.remove(&number) {
                                         listeners.into_iter().for_each(|l| {
-                                            let _ = l.send(Err(eyre::format_err!(
+                                            let _ = l.send(Err(crate::format_err!(
                                                 "GetBlockHash failed (number={}): {}",
                                                 number,
                                                 err

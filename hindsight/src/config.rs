@@ -1,4 +1,4 @@
-use crate::debug;
+use hindsight_core::debug;
 use std::{env, path::PathBuf};
 
 #[derive(Clone, Debug)]

@@ -7,9 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.71"
+async-trait = "0.1.73"
 ethers = "2.0.7"
+futures = "0.3.28"
+hashbrown = "0.14.2"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
 rand = "0.8.5"
+revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
 serde = "1.0.164"
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
+tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}

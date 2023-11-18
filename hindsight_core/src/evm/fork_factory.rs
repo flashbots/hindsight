@@ -1,20 +1,17 @@
 /* borrowed from mouseless: [rusty-sando](https://github.com/mouseless-eth/rusty-sando/blob/8bed4dbc27e8dac5c1f38cff595bdc082f1f892b/bot/src/forked_db/fork_factory.rs) */
 
-use std::sync::mpsc::channel as oneshot_channel;
-use std::sync::Arc;
-
-use crate::fork_db::ForkDB;
-
+use super::fork_db::ForkDB;
 use super::global_backend::{BackendFetchRequest, GlobalBackend};
+use crate::Result;
 use ethers::prelude::*;
 use ethers::types::BlockId;
-use eyre::Report;
 use futures::channel::mpsc::{channel, Sender};
-use hindsight_core::{err, Result};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{AccountInfo, Address as rAddress, U256 as rU256},
 };
+use std::sync::mpsc::channel as oneshot_channel;
+use std::sync::Arc;
 
 /// Type that setups up backend and clients to talk to backend
 /// each client is an own evm instance but we cache request results
@@ -52,7 +49,7 @@ impl ForkFactory {
     }
 
     // Used locally in `insert_account_storage` to fetch accoutn info if account does not exist
-    fn do_get_basic(&self, address: rAddress) -> std::result::Result<Option<AccountInfo>, Report> {
+    fn do_get_basic(&self, address: rAddress) -> Result<Option<AccountInfo>> {
         tokio::task::block_in_place(|| {
             let (sender, rx) = oneshot_channel();
             let req = BackendFetchRequest::Basic(address, sender);
@@ -102,7 +99,7 @@ impl ForkFactory {
             // set basic info as its missing
             let info = match self.do_get_basic(address) {
                 Ok(i) => i,
-                Err(e) => return err!("insert_account_storage error: {}", e),
+                Err(e) => return Err(crate::format_err!("insert_account_storage error: {}", e)),
             };
 
             // keep record of fetched acc basic info

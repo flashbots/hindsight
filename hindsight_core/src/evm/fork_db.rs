@@ -2,9 +2,9 @@
 
 use std::sync::mpsc::channel as oneshot_channel;
 
-use eyre::Report;
+use super::global_backend::BackendFetchRequest;
+use crate::Result;
 use futures::channel::mpsc::Sender;
-use hindsight_core::Result;
 use revm::{
     db::{CacheDB, DatabaseRef, EmptyDB},
     primitives::{
@@ -13,8 +13,6 @@ use revm::{
     },
     Database, DatabaseCommit,
 };
-
-use crate::global_backend::BackendFetchRequest;
 
 #[derive(Clone, Debug)]
 pub struct ForkDB {
@@ -28,7 +26,7 @@ impl ForkDB {
         Self { backend, db }
     }
 
-    fn do_get_basic(&self, address: rAddress) -> Result<Option<AccountInfo>, Report> {
+    fn do_get_basic(&self, address: rAddress) -> Result<Option<AccountInfo>> {
         tokio::task::block_in_place(|| {
             let (sender, rx) = oneshot_channel();
             let req = BackendFetchRequest::Basic(address, sender);
@@ -37,7 +35,7 @@ impl ForkDB {
         })
     }
 
-    fn do_get_storage(&self, address: rAddress, index: rU256) -> Result<rU256, Report> {
+    fn do_get_storage(&self, address: rAddress, index: rU256) -> Result<rU256> {
         tokio::task::block_in_place(|| {
             let (sender, rx) = oneshot_channel();
             let req = BackendFetchRequest::Storage(address, index, sender);
@@ -46,7 +44,7 @@ impl ForkDB {
         })
     }
 
-    fn do_get_block_hash(&self, number: rU256) -> Result<B256, Report> {
+    fn do_get_block_hash(&self, number: rU256) -> Result<B256> {
         tokio::task::block_in_place(|| {
             let (sender, rx) = oneshot_channel();
             let req = BackendFetchRequest::BlockHash(number, sender);
@@ -57,7 +55,7 @@ impl ForkDB {
 }
 
 impl Database for ForkDB {
-    type Error = Report;
+    type Error = crate::Error;
 
     fn basic(&mut self, address: rAddress) -> Result<Option<AccountInfo>, Self::Error> {
         // found locally, return it
@@ -139,14 +137,14 @@ impl Database for ForkDB {
             Ok(code) => Ok(code),
             Err(e) => {
                 // should alr be loaded
-                Err(Report::new(e))
+                Err(Self::Error::new(e))
             }
         }
     }
 }
 
 impl DatabaseRef for ForkDB {
-    type Error = Report;
+    type Error = crate::Error;
 
     fn basic(&self, address: rAddress) -> Result<Option<AccountInfo>, Self::Error> {
         match self.db.accounts.get(&address) {
@@ -193,7 +191,10 @@ impl DatabaseRef for ForkDB {
             Ok(code) => Ok(code),
             Err(e) => {
                 // should alr be loaded
-                Err(Report::msg(e)) //MissingCode(code_hash))
+                Err(Self::Error::msg(format!(
+                    "MissingCode (code_hash={}): {}",
+                    code_hash, e
+                )))
             }
         }
     }

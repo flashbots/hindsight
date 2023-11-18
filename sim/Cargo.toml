@@ -9,7 +9,10 @@ edition = "2021"
 [dependencies]
 data = { path = "../data" }
 hindsight_core = { path = "../hindsight_core" }
+foundry-contracts.workspace = true
+
 async-recursion = "1.0.4"
+async-trait = "0.1.74"
 ethers = {version = "2.0.10", features = ["ws"]}
 futures = "0.3.28"
 lazy_static = "1.4.0"
@@ -17,6 +20,3 @@ mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
 revm = {version = "3.5.0", features = ["ethersdb", "serde", "std"]}
 tokio = {version = "1.29.1", features = ["macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"]}
 uniswap_v3_math = {git = "https://github.com/0xKitsune/uniswap_v3_math.git"}
-hashbrown = "0.14.2"
-eyre = "0.6.9"
-foundry-contracts.workspace = true

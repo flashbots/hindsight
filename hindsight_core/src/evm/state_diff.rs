@@ -1,80 +1,50 @@
-use std::collections::{btree_map::Entry, BTreeMap};
-
+use crate::Result;
+use async_trait::async_trait;
 use ethers::{
     middleware::Middleware,
     providers::ProviderError,
-    types::{AccountDiff, Block, BlockId, Diff, TraceType, Transaction, H160},
+    types::{AccountDiff, BlockId, BlockTrace, Diff, H160},
     utils::keccak256,
 };
 use futures::{stream::FuturesUnordered, StreamExt};
-use hindsight_core::{error::HindsightError, eth_client::WsClient, Result};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{
         AccountInfo, Address as rAddress, Bytecode, Bytes as rBytes, FixedBytes, U256 as rU256,
     },
 };
+use std::collections::{btree_map::Entry, BTreeMap};
 
 type TreeMap = BTreeMap<H160, AccountDiff>;
 
-pub struct StateDiff<'a> {
+pub struct StateDiff {
     pub state: TreeMap,
-    pub block: Block<Transaction>,
-    client: &'a WsClient,
 }
 
-impl<'a> StateDiff<'a> {
-    /// Get state diff from block number.
-    /// _// TODO: abstract client away_
-    ///
-    /// **Note:** client must be connected to an archive node.
-    pub async fn from_block(client: &'a WsClient, block_num: u64) -> Result<Self> {
-        // get txs from block
-        let block = client
-            .get_block_with_txs(block_num)
-            .await?
-            .ok_or(HindsightError::BlockNotFound(block_num))?;
+#[async_trait]
+pub trait ToCacheDb<T> {
+    async fn to_cache_db(&self, client: &T, block_num: Option<BlockId>)
+        -> Result<CacheDB<EmptyDB>>;
+}
 
-        // get state diff from txs by calling trace_call_many on client
-        let req = block
-            .transactions
-            .iter()
-            .map(|tx| (tx, vec![TraceType::StateDiff]))
-            .collect();
-        let block_traces = client.trace_call_many(req, Some(block_num.into())).await?;
-
-        let mut final_diff = BTreeMap::new();
-        block_traces
-            .into_iter()
-            .flat_map(|trace| trace.state_diff.map(|diff| diff.0.into_iter()))
-            .flatten()
-            .for_each(|(address, diff)| {
-                match final_diff.entry(address.into()) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(diff.into());
-                    }
-                    Entry::Occupied(_) => {
-                        // do nothing if key already exists
-                        // thanks for the code [@mouseless](https://github.com/mouseless-eth/rusty-sando)
-                    }
-                }
-            });
-
-        Ok(Self {
-            state: final_diff,
-            client,
-            block,
-        })
-    }
-
-    pub async fn to_cache_db(&self, block_num: Option<BlockId>) -> Result<CacheDB<EmptyDB>> {
+#[async_trait]
+impl<T> ToCacheDb<T> for StateDiff
+where
+    T: Clone + Send + Sync + Middleware, //+ From<&'a dyn std::error::Error>,
+    ProviderError: From<<T as Middleware>::Error>,
+{
+    async fn to_cache_db(
+        &self,
+        client: &T,
+        block_num: Option<BlockId>,
+    ) -> Result<CacheDB<EmptyDB>> {
         let mut cache_db = CacheDB::new(EmptyDB::new());
         let mut futures = FuturesUnordered::new();
 
         for (address, diff) in self.state.iter() {
-            let nonce_provider = self.client.clone();
-            let balance_provider = self.client.clone();
-            let code_provider = self.client.clone();
+            let nonce_provider = client.clone();
+            let balance_provider = client.clone();
+            let code_provider = client.clone();
 
             let addr = *address;
 
@@ -124,5 +94,32 @@ impl<'a> StateDiff<'a> {
         }
 
         Ok(cache_db)
+    }
+}
+
+impl StateDiff {
+    /// Get state diff from block number.
+    /// _// TODO: abstract client away_
+    ///
+    /// **Note:** client must be connected to an archive node.
+    pub async fn from_block_traces(block_traces: Vec<BlockTrace>) -> Result<Self> {
+        let mut final_diff = BTreeMap::new();
+        block_traces
+            .into_iter()
+            .flat_map(|trace| trace.state_diff.map(|diff| diff.0.into_iter()))
+            .flatten()
+            .for_each(|(address, diff)| {
+                match final_diff.entry(address.into()) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(diff.into());
+                    }
+                    Entry::Occupied(_) => {
+                        // do nothing if key already exists
+                        // thanks for the code [@mouseless](https://github.com/mouseless-eth/rusty-sando)
+                    }
+                }
+            });
+
+        Ok(Self { state: final_diff })
     }
 }
