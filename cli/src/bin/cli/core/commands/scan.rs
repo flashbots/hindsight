@@ -79,7 +79,7 @@ pub async fn run(
         }
 
         // update params for next batch of events
-        event_params.offset = Some(event_params.offset.unwrap() + events.len() as u64);
+        event_params.offset = Some(event_params.offset.unwrap_or(0) + events.len() as u64);
 
         info!(
             "fetched {} events. first event timestamp={}",

@@ -16,5 +16,5 @@ pub fn set_block_state(evm: &mut EVM<ForkDB>, block_info: &BlockInfo) {
     evm.env.block.basefee = rU256::from_be_bytes(basefee_slice);
     // use something other than default
     evm.env.block.coinbase =
-        rAddress::from_str("0xC0ffeeFee15BAD00000000000000000000000000").unwrap();
+        rAddress::from_str("0xC0FFEeFEe15bad00000000000000000000000000").unwrap();
 }

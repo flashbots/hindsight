@@ -1,23 +1,12 @@
 mod config;
 mod core;
 
-// use core::{
-//     commands::{self},
-//     data::{
-//         arbs::{ArbFilterParams, WriteEngine},
-//         db::Db,
-//     },
-//     // debug,
-//     hindsight::Hindsight,
-//     info,
-//     interfaces::TokenPair,
-//     util::{get_ws_client, weth},
-// };
 use crate::core::{commands, Cli, Commands};
 use config::DotEnv;
 use data::{
     arbs::{ArbFilterParams, WriteEngine},
-    db::Db,
+    db::{Db, DbEngine},
+    MongoConfig, PostgresConfig,
 };
 use ethers::{types::H160, utils::parse_ether};
 use hindsight_core::{
@@ -25,7 +14,7 @@ use hindsight_core::{
     info,
     interfaces::{Config, TokenPair},
     mev_share_sse::EventClient,
-    util::weth,
+    util::WETH,
 };
 use std::thread::available_parallelism;
 
@@ -64,7 +53,12 @@ async fn main() -> anyhow::Result<()> {
                 then we know we've scanned & simulated up to that point.
                 Timestamp is evaluated by default, falls back to block.
             */
-            let db_engine = db_engine.unwrap_or_default();
+            let db_engine = match db_engine.unwrap_or_default() {
+                // ignore the configs the cli passes; they're populated w/ default vals
+                // we want to load vars from .env
+                DbEngine::Postgres(_) => DbEngine::Postgres(PostgresConfig::from_env()),
+                DbEngine::Mongo(_) => DbEngine::Mongo(MongoConfig::from_env()),
+            };
             let db = Db::new(db_engine.to_owned()).await;
             let (block_start, timestamp_start) =
                 if block_start.is_none() && timestamp_start.is_none() {
@@ -183,10 +177,7 @@ async fn main() -> anyhow::Result<()> {
                 timestamp_start,
                 min_profit,
                 token_pair: if let Some(token) = token {
-                    Some(TokenPair {
-                        token,
-                        weth: weth(),
-                    })
+                    Some(TokenPair { token, weth: *WETH })
                 } else {
                     None
                 },

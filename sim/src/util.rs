@@ -1,45 +1,43 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use data::interfaces::{PairPool, PoolVariant};
 use ethers::{
+    abi,
     middleware::Middleware,
     prelude::{abigen, H160},
-    types::{Address, H256, U256},
+    types::{Address, U256},
+    utils::parse_ether,
 };
+use foundry_contracts::brain_dance::BRAINDANCE_BYTECODE;
 use hindsight_core::{
     eth_client::{WsClient, WsProvider},
+    evm::fork_factory::ForkFactory,
     interfaces::BlockInfo,
+    util::WETH,
     Result,
 };
 use lazy_static::lazy_static;
+use revm::primitives::{
+    keccak256 as rkeccak256, AccountInfo, Address as rAddress, Bytecode, U256 as rU256,
+};
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
 pub use ethers::utils::WEI_IN_ETHER as ETH;
 
-pub struct DevAccount {
-    pub address: Address,
-    pub private_key: H256,
-}
-
-pub fn eth_dev_account() -> DevAccount {
-    DevAccount {
-        address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-            .parse::<Address>()
-            .expect("invalid address"),
-        private_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-            .parse::<H256>()
-            .expect("invalid private key"),
-    }
-}
+use crate::evm::inject_contract;
 
 lazy_static! {
-    pub static ref ETH_DEV_ACCOUNT: DevAccount = eth_dev_account();
+    pub static ref ETH_DEV_ADDRESS: Address = "0x9999999999999999999999999999999999999999"
+        .parse::<Address>()
+        .expect("invalid address");
     pub static ref BRAINDANCE_ADDR: Address = "0xc433333333333333333333333333333333333353"
         .parse::<Address>()
         .expect("invalid address");
     pub static ref CONTROLLER_ADDR: Address = "0xf00000000000000000000000000000000000000d"
         .parse::<Address>()
         .expect("invalid address");
+    pub static ref BRAINDANCE_START_BALANCE: rU256 =
+        rU256::from_str("0x16C4ABBEBEA0100000").expect("invalid start balance");
 }
 
 /// Returns the price (token1 per token0).
@@ -180,4 +178,52 @@ pub async fn get_block_info(provider: Arc<WsProvider>, block_num: u64) -> Result
         gas_limit: Some(block.gas_limit),
         gas_used: Some(block.gas_used),
     })
+}
+
+fn inject_braindance_code(fork_factory: &mut ForkFactory) {
+    let bytecode = Bytecode::new_raw(BRAINDANCE_BYTECODE.0.to_owned().into());
+    // put contract onchain
+    inject_contract(
+        fork_factory,
+        BRAINDANCE_ADDR.0.into(),
+        bytecode.to_owned(),
+        rkeccak256(BRAINDANCE_BYTECODE.0.to_owned()),
+    );
+
+    // setup braindance contract controller
+    let mut value: [u8; 32] = [0; 32];
+    parse_ether(1337).unwrap().to_big_endian(&mut value);
+    let codehash = rkeccak256(bytecode.bytecode.to_owned());
+    let account = AccountInfo::new(rU256::from_be_slice(&value), 0, codehash, bytecode);
+    fork_factory.insert_account_info(CONTROLLER_ADDR.0.into(), account);
+}
+
+pub fn set_weth_balance(fork_factory: &mut ForkFactory, address: rAddress, amount: rU256) {
+    // Get balance mapping of braindance contract inside of weth contract
+    let slot: U256 = ethers::utils::keccak256(abi::encode(&[
+        abi::Token::Address((address.0).0.into()),
+        abi::Token::Uint(U256::from(3)),
+    ]))
+    .into();
+
+    let mut slotslice: [u8; 32] = [0; 32];
+    slot.to_big_endian(&mut slotslice);
+
+    fork_factory
+        .insert_account_storage(WETH.0.into(), rU256::from_be_bytes(slotslice), amount)
+        .expect(&format!("failed to insert account storage. slot={}", slot));
+}
+
+pub fn attach_braindance_module(fork_factory: &mut ForkFactory) {
+    inject_braindance_code(fork_factory);
+    set_weth_balance(
+        fork_factory,
+        BRAINDANCE_ADDR.0.into(),
+        *BRAINDANCE_START_BALANCE,
+    );
+    set_weth_balance(
+        fork_factory,
+        ETH_DEV_ADDRESS.0.into(),
+        *BRAINDANCE_START_BALANCE,
+    );
 }

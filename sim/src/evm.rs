@@ -1,4 +1,4 @@
-use crate::util::{get_price_v3, BRAINDANCE_ADDR, CONTROLLER_ADDR, ETH_DEV_ACCOUNT};
+use crate::util::{get_price_v3, BRAINDANCE_ADDR, CONTROLLER_ADDR, ETH_DEV_ADDRESS};
 use ethers::{
     abi::{self, AbiDecode, AbiEncode, ParamType},
     prelude::abigen,
@@ -9,10 +9,13 @@ use foundry_contracts::brain_dance::{
     CalculateSwapV3Return,
 };
 use hindsight_core::{
-    debug, err, error::HindsightError, evm::fork_db::ForkDB, interfaces::PoolVariant, Error, Result,
+    debug, err,
+    error::HindsightError,
+    evm::{fork_db::ForkDB, fork_factory::ForkFactory},
+    interfaces::PoolVariant,
+    warn, Error, Result,
 };
 use revm::{
-    db::CacheDB,
     primitives::{
         AccountInfo, Address as rAddress, Bytecode, Bytes, ExecutionResult, Output, ResultAndState,
         TransactTo, B256, U256 as rU256,
@@ -21,18 +24,17 @@ use revm::{
 };
 use std::{ops::Mul, str::FromStr};
 
-pub fn inject_contract<T: revm::db::DatabaseRef>(
-    db: &mut CacheDB<T>,
+pub fn inject_contract(
+    db: &mut ForkFactory, // TODO: generalize this to `impl Database`
     address: Address,
     bytecode: Bytecode,
     bytecode_hash: B256,
-) -> Result<()> {
+) {
     // instantiate account at given address
     let account = AccountInfo::new(rU256::ZERO, 0, bytecode_hash, bytecode);
 
     // inject contract code into db
     db.insert_account_info(address.0.into(), account);
-    Ok(())
 }
 
 /// Execute a braindance swap on the forked EVM, commiting its state changes to the EVM's ForkDB.
@@ -154,12 +156,12 @@ pub async fn sim_price_v2(
 ) -> Result<U256> {
     // getReserves
     evm.env.tx.transact_to = TransactTo::Call(target_pool.0.into());
-    evm.env.tx.caller = ETH_DEV_ACCOUNT.address.0.into();
+    evm.env.tx.caller = ETH_DEV_ADDRESS.0.into();
     evm.env.tx.value = rU256::ZERO;
     evm.env.tx.data = Bytes::from_str("0x0902f1ac")?; // getReserves()
-    evm.env.tx.gas_price = rU256::from(100_000_000_000_i64);
-    evm.env.tx.gas_limit = 900_000_u64;
-    evm.env.tx.gas_priority_fee = Some(rU256::from(13_000_000_000_u64));
+    evm.env.tx.gas_price = rU256::from(10_i64);
+    evm.env.tx.gas_limit = 90_000_u64;
+    evm.env.tx.gas_priority_fee = Some(rU256::from(1_u64));
     let result = match evm.transact_ref() {
         Ok(result) => result.result,
         Err(e) => return err!("SimulationEvmError: {}", e), // TODO: add new error type
@@ -207,15 +209,18 @@ pub async fn sim_price_v2(
     };
     let output = call_function(evm, "0x313ce567", token0)?; // decimals()
     let token0_decimals_tokens = abi::decode(&[ParamType::Uint(8)], &output)?;
-    let token0_decimals = token0_decimals_tokens[0]
-        .clone()
-        .into_uint()
-        .ok_or::<Error>(HindsightError::CallError("token decimals not found".to_owned()).into())?;
+    let token0_decimals =
+        token0_decimals_tokens[0]
+            .clone()
+            .into_uint()
+            .ok_or(HindsightError::CallError(
+                "token decimals not found".to_owned(),
+            ))?;
 
     reserves_1
         .mul(U256::from(10).pow(token0_decimals))
         .checked_div(reserves_0)
-        .ok_or::<Error>(
+        .ok_or(
             HindsightError::MathError(format!(
                 "failed to divide reserves (reserves_0, reserves_1)=({},{})",
                 reserves_0, reserves_1
@@ -227,10 +232,10 @@ pub async fn sim_price_v2(
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
     debug!("calling method {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
-        from: Some(ETH_DEV_ACCOUNT.address),
+        from: Some(*ETH_DEV_ADDRESS),
         to: Some(contract.into()),
-        gas: Some(U256::from(900_000_u64)),
-        gas_price: Some(U256::from(1_000_000_000_000_u64)),
+        gas: Some(U256::from(90_000_u64)),
+        gas_price: Some(evm.env.block.basefee.to_be_bytes().into()),
         value: None,
         data: Some(BytesEthers::from_str(method)?),
         nonce: None,
@@ -240,30 +245,32 @@ pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> 
 }
 
 pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<Bytes> {
-    evm.env.tx.caller = tx.from.unwrap_or(ETH_DEV_ACCOUNT.address).0.into();
+    evm.env.tx.caller = tx.from.unwrap_or(*ETH_DEV_ADDRESS).0.into();
     evm.env.tx.transact_to = TransactTo::Call(rAddress::from(
         tx.to
             .to_owned()
-            .ok_or::<Error>(
-                HindsightError::EvmParseError(format!("tx.to invalid ({:?})", tx.to)).into(),
-            )?
+            .ok_or(HindsightError::EvmParseError(format!(
+                "tx.to invalid ({:?})",
+                tx.to
+            )))?
             .as_address()
-            .ok_or::<Error>(
+            .ok_or(
                 // TODO: find cleaner way to do this
                 HindsightError::EvmParseError(format!(
                     "tx.to could not parse address ({:?})",
                     tx.to
-                ))
-                .into(),
+                )),
             )?
             .0,
     ));
+    println!("data {:?}", tx.data);
     evm.env.tx.data = tx
         .data
         .to_owned()
-        .ok_or::<Error>(
-            HindsightError::EvmParseError(format!("tx.data invalid ({:?})", tx.data)).into(),
-        )?
+        .ok_or(HindsightError::EvmParseError(format!(
+            "tx.data invalid ({:?})",
+            tx.data
+        )))?
         .0
         .into();
 
@@ -281,6 +288,7 @@ pub fn sim_tx_request(evm: &mut EVM<ForkDB>, tx: TransactionRequest) -> Result<B
     let res = match evm.transact_ref() {
         Ok(res) => res.result,
         Err(err) => {
+            warn!("failed to simulate tx request: {:?}", err);
             return err!("failed to simulate tx request: {:?}", err);
         }
     };
@@ -375,6 +383,7 @@ pub async fn call_tx(evm: &mut EVM<ForkDB>, tx: Transaction) -> Result<ResultAnd
 mod tests {
     use std::str::FromStr;
 
+    use crate::ethclient::ForkEVM;
     use crate::util::get_block_info;
     use ethers::{
         providers::Middleware,

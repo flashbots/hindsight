@@ -71,7 +71,10 @@ impl Database for ForkDB {
 
                 // keep record of fetched acc basic info
                 if info.is_some() {
-                    self.db.insert_account_info(address, info.clone().unwrap());
+                    self.db.insert_account_info(
+                        address,
+                        info.clone().expect("failed to insert account info"),
+                    );
                 }
 
                 Ok(info)
@@ -107,7 +110,7 @@ impl Database for ForkDB {
         // keep record of fetched storage (can unwrap safely as cacheDB always returns true)
         self.db
             .insert_account_storage(address, index, storage_val)
-            .unwrap();
+            .expect("failed to insert account storage");
 
         Ok(storage_val)
     }

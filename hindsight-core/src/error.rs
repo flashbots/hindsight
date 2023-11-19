@@ -55,6 +55,7 @@ impl From<HindsightError> for Error {
 #[macro_export]
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(hindsight_core::anyhow::anyhow!(format!($($arg)*)))
+        (Err(hindsight_core::anyhow::anyhow!(format!($($arg)*))))
+        // panic!("oopsies");
     };
 }

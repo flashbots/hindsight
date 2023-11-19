@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{eth_client::WsClient, Result};
 use async_trait::async_trait;
 use ethers::{
     middleware::Middleware,
@@ -8,12 +8,15 @@ use ethers::{
 };
 use futures::{stream::FuturesUnordered, StreamExt};
 use revm::{
-    db::{CacheDB, EmptyDB},
+    db::{CacheDB, DatabaseRef, EmptyDB, EmptyDBTyped},
     primitives::{
         AccountInfo, Address as rAddress, Bytecode, Bytes as rBytes, FixedBytes, U256 as rU256,
     },
 };
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    convert::Infallible,
+};
 
 type TreeMap = BTreeMap<H160, AccountDiff>;
 
@@ -22,29 +25,33 @@ pub struct StateDiff {
 }
 
 #[async_trait]
-pub trait ToCacheDb<T> {
-    async fn to_cache_db(&self, client: &T, block_num: Option<BlockId>)
-        -> Result<CacheDB<EmptyDB>>;
+pub trait ToCacheDb<B: DatabaseRef> {
+    async fn to_cache_db(
+        &self,
+        client: &WsClient,
+        block_num: Option<BlockId>,
+    ) -> Result<CacheDB<B>>;
 }
 
 #[async_trait]
-impl<T> ToCacheDb<T> for StateDiff
+impl<DbRef> ToCacheDb<DbRef> for StateDiff
 where
-    T: Clone + Send + Sync + Middleware, //+ From<&'a dyn std::error::Error>,
-    ProviderError: From<<T as Middleware>::Error>,
+    DbRef: DatabaseRef + Default + std::fmt::Debug,
+    CacheDB<DbRef>: From<CacheDB<EmptyDBTyped<Infallible>>>,
 {
     async fn to_cache_db(
         &self,
-        client: &T,
+        client: &WsClient,
         block_num: Option<BlockId>,
-    ) -> Result<CacheDB<EmptyDB>> {
-        let mut cache_db = CacheDB::new(EmptyDB::new());
+    ) -> Result<CacheDB<DbRef>> {
+        let client = client.to_owned();
+        let mut cache_db = CacheDB::new(EmptyDB::default());
         let mut futures = FuturesUnordered::new();
 
         for (address, diff) in self.state.iter() {
-            let nonce_provider = client.clone();
-            let balance_provider = client.clone();
-            let code_provider = client.clone();
+            let nonce_provider = client.get_provider();
+            let balance_provider = client.get_provider();
+            let code_provider = client.get_provider();
 
             let addr = *address;
 
@@ -73,6 +80,7 @@ where
             let (acct_diff, address, nonce, balance, code, code_hash) = result?;
             let bytecode = Bytecode::new_raw(code);
             let acct_info = AccountInfo::new(balance, nonce, code_hash, bytecode);
+
             cache_db.insert_account_info(address, acct_info);
 
             acct_diff.storage.iter().for_each(|(slot, storage_diff)| {
@@ -93,7 +101,7 @@ where
             });
         }
 
-        Ok(cache_db)
+        Ok(cache_db.into())
     }
 }
 

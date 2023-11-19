@@ -13,6 +13,7 @@ use ethers::{
     utils::{format_ether, parse_ether},
 };
 use futures::future::join_all;
+use hindsight_core::util::WETH;
 use mev_share_sse::{EventHistory, Hint};
 use rust_decimal::prelude::*;
 use std::sync::Arc;
@@ -214,7 +215,7 @@ impl ArbDb for PostgresConnect {
                         timestamp: row.get::<_, NaiveDateTime>(3).timestamp() as u64,
                         hint: Hint {
                             txs: vec![],
-                            hash: H256::from_str(&row.get::<_, String>(0)).unwrap(),
+                            hash: H256::from_str(&row.get::<_, String>(0)).expect("invalid hash"),
                             logs: vec![],
                             gas_used: None,
                             mev_gas_price: None,
@@ -232,12 +233,7 @@ impl ArbDb for PostgresConnect {
                             token0_is_weth: false,
                             pool: Address::zero(),
                             price: U256::zero(),
-                            tokens: TokenPair {
-                                token,
-                                weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-                                    .parse::<Address>()
-                                    .unwrap(),
-                            },
+                            tokens: TokenPair { token, weth: *WETH },
                             arb_pools: vec![],
                         },
                         backrun_trade: BackrunResult {
@@ -273,6 +269,7 @@ impl ArbDb for PostgresConnect {
 #[cfg(test)]
 mod tests {
     use ethers::types::H160;
+    use hindsight_core::util::WETH;
 
     use super::*;
     use crate::interfaces::TokenPair;
@@ -319,10 +316,7 @@ mod tests {
                 .to_lowercase()
                 .parse::<H160>()
                 .unwrap(),
-            weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-                .to_lowercase()
-                .parse::<H160>()
-                .unwrap(),
+            weth: *WETH,
         };
         let arbs = db
             .read_arbs(

@@ -11,6 +11,7 @@ async-trait = "0.1.73"
 ethers = "2.0.7"
 futures = "0.3.28"
 hashbrown = "0.14.2"
+lazy_static = "1.4.0"
 mev-share-sse = {git = "https://github.com/paradigmxyz/mev-share-rs.git"}
 rand = "0.8.5"
 revm = {version = "3.0.0", features = ["ethersdb", "serde", "std"]}
