@@ -836,6 +836,7 @@ dependencies = [
  "hindsight-core",
  "lazy_static",
  "scanner",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
 ]

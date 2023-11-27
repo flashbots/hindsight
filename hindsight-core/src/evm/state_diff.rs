@@ -49,9 +49,9 @@ where
         let mut futures = FuturesUnordered::new();
 
         for (address, diff) in self.state.iter() {
-            let nonce_provider = client.get_provider();
-            let balance_provider = client.get_provider();
-            let code_provider = client.get_provider();
+            let nonce_provider = client.arc_provider();
+            let balance_provider = client.arc_provider();
+            let code_provider = client.arc_provider();
 
             let addr = *address;
 
@@ -68,7 +68,7 @@ where
                     diff.clone(),
                     addr.0.into(),
                     nonce.as_u64(),
-                    rU256::from_be_slice(&rbalance),
+                    rU256::from_be_bytes(rbalance),
                     code.0.into(),
                     code_hash.into(),
                 ))
@@ -94,7 +94,7 @@ where
                 cache_db
                     .insert_account_storage(
                         address.0.into(),
-                        rU256::from_be_slice(&slot.0),
+                        rU256::from_be_bytes(slot.to_fixed_bytes()),
                         rU256::from_be_slice(&slot_value),
                     )
                     .expect("failed to insert account storage");
@@ -105,12 +105,8 @@ where
     }
 }
 
-impl StateDiff {
-    /// Get state diff from block number.
-    /// _// TODO: abstract client away_
-    ///
-    /// **Note:** client must be connected to an archive node.
-    pub async fn from_block_traces(block_traces: Vec<BlockTrace>) -> Result<Self> {
+impl From<Vec<BlockTrace>> for StateDiff {
+    fn from(block_traces: Vec<BlockTrace>) -> Self {
         let mut final_diff = BTreeMap::new();
         block_traces
             .into_iter()
@@ -128,6 +124,6 @@ impl StateDiff {
                 }
             });
 
-        Ok(Self { state: final_diff })
+        Self { state: final_diff }
     }
 }

@@ -1,6 +1,6 @@
 // credit to Foundry's SharedBackend implmenetation:
 // https://github.com/foundry-rs/foundry/blob/master/evm/src/executor/fork/backend.rs
-use crate::Result;
+use crate::{util::u256_to_ru256, Result};
 use ethers::{
     providers::{Middleware, Provider, ProviderError, Ws},
     types::{Address, BigEndianHash, BlockId, H256, U256},
@@ -158,17 +158,7 @@ impl GlobalBackend {
                     let code = provider.get_code(address_ethers, block_num);
                     let resp = tokio::try_join!(balance, nonce, code);
 
-                    let resp = resp.map(|(b, n, c)| {
-                        (
-                            {
-                                let mut bslice: [u8; 32] = [0; 32];
-                                b.to_big_endian(&mut bslice);
-                                rU256::from_be_slice(&bslice)
-                            },
-                            n.as_u64(),
-                            c.0.into(),
-                        )
-                    });
+                    let resp = resp.map(|(b, n, c)| (u256_to_ru256(b), n.as_u64(), c.0.into()));
                     (resp, address)
                 });
                 self.pending_requests.push(FetchRequestFuture::Basic(fut));
@@ -188,7 +178,8 @@ impl GlobalBackend {
                 let block_num = self.block_num;
                 let fut = Box::pin(async move {
                     // convert from revm to ethers type
-                    let idx_ethers = H256::from_uint(&U256::from(idx.to_be_bytes()));
+                    let idx_ethers =
+                        H256::from_uint(&U256::from_big_endian(&idx.to_be_bytes::<32>()));
                     let address_ethers: Address = ethers::types::H160((address.0).0);
 
                     let storage = provider
@@ -197,12 +188,7 @@ impl GlobalBackend {
                     let storage = storage.map(|storage| storage.into_uint());
 
                     // convert ethers types to revm types
-                    let storage = storage.map(|s| {
-                        let mut sslice: [u8; 32] = [0; 32];
-                        s.to_big_endian(&mut sslice);
-                        rU256::from_be_slice(&sslice)
-                        // is there an easier way to do this? I feel dumb.
-                    });
+                    let storage = storage.map(u256_to_ru256);
                     // convert back to revm types
                     (storage, address, idx)
                 });

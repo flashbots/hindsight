@@ -113,9 +113,7 @@ impl ArbClient for WsClient {
             gas_used: Some(block.gas_used),
         };
 
-        let res =
-            find_optimal_backrun_amount_in_out(Arc::new(self.clone()), tx, event, &block_info)
-                .await?;
+        let res = find_optimal_backrun_amount_in_out(self, tx, event, &block_info).await?;
         let mut max_profit = U256::from(0);
         /*
            Sum up the profit from each result. Generally there should only be one result, but if
@@ -140,7 +138,6 @@ impl ArbClient for WsClient {
 
 #[cfg(test)]
 mod tests {
-    use ethers::{providers::Middleware, types::H256};
     use serde_json::json;
 
     use data::{
@@ -152,21 +149,41 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn it_processes_orderflow() -> Result<()> {
-        let client = get_test_ws_client().await?;
-        // let hindsight = Hindsight::new(client).await?;
+    fn get_juicy_tx() -> Transaction {
+        serde_json::from_value(json!({
+            "hash": "0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a",
+            "nonce": "0x273",
+            "blockHash": "0x319833ccb287c0b9bf65f2f4f8df10327e22e38bd7e1c350af3f96a7829dca68",
+            "blockNumber": "0x10d1e9d",
+            "transactionIndex": "0x5b",
+            "from": "0x8228c693548151805f0e704b5cdf522be95d96a6",
+            "to": "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad",
+            "value": "0x0",
+            "gasPrice": "0x584f095e9",
+            "gas": "0x5ab14",
+            "input": "0x3593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000064a7237b0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000a2a15d09519be0000000000000000000000000000000000000000000000000007d6a7b23e1586e422100000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000005915f74458ae0bfdaa1a96ca1aa779d715cc1eefe40001f4a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480001f4c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000bb8f16e81dce15b08f326220742020379b855b87df900000000000000",
+            "v": "0x0",
+            "r": "0xf1acfb5a92077d41ffd708affb12b27235b6d32467cdf372b53ea9d245c18d2c",
+            "s": "0x732f25823fc9714ff12135c89697101f517b421cbad07c8aa4b07c8dc0cfe779",
+            "type": "0x2",
+            "accessList": [],
+            "maxPriorityFeePerGas": "0x5f5e100",
+            "maxFeePerGas": "0x82fc195db",
+            "chainId": "0x1"
+        })).unwrap()
+    }
 
-        // data from an actual juicy event
-        let juicy_event: EventHistory = serde_json::from_value(json!({
+    fn get_juicy_event() -> EventHistory {
+        serde_json::from_value(json!({
           "block": 17637019,
           "timestamp": 1688673408,
           "hint": {
-            "txs": null,
+            "txs": [],
             "hash": "0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a",
             "logs": [
               {
                 "address": "0x5db3d38bd40c862ba1fdb2286c32a62ab954d36d",
+                "data": "0x",
                 "topics": [
                   "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
                   "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -175,6 +192,7 @@ mod tests {
               },
               {
                 "address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+                "data": "0x",
                 "topics": [
                   "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
                   "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -183,6 +201,7 @@ mod tests {
               },
               {
                 "address": "0x36bcf57291a291a6e0e0bff7b12b69b556bcd9ed",
+                "data": "0x",
                 "topics": [
                   "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
                   "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -191,15 +210,22 @@ mod tests {
               }
             ]
           }
-        }))?;
-        let juicy_tx_hash: H256 =
-            "0xf00df02ad86f04a8b32d9f738394ee1b7ff791647f753923c60522363132f84a".parse::<H256>()?;
-        let juicy_tx = get_test_ws_client()
-            .await?
-            .provider
-            .get_transaction(juicy_tx_hash)
-            .await?
-            .expect("failed to find juicy tx on chain");
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_processes_orderflow() -> Result<()> {
+        println!("starting test...");
+        let client = get_test_ws_client().await?;
+        println!("client: {:#?}", client);
+
+        // data from an actual juicy event
+        let juicy_event: EventHistory = get_juicy_event();
+        println!("juicy_event: {:#?}", juicy_event);
+        let juicy_tx = get_juicy_tx();
+        println!("juicy_tx: {:#?}", juicy_tx);
+
         let event_map = [juicy_event]
             .iter()
             .map(|event| (event.hint.hash, event.to_owned()))
@@ -209,7 +235,7 @@ mod tests {
         // run the sim, it will save a result to the "test" DB
         client
             .simulate_arbs(
-                vec![juicy_tx].as_ref(),
+                &vec![juicy_tx.to_owned()],
                 1,
                 Some(test_db.connect.clone()),
                 event_map,
@@ -225,7 +251,19 @@ mod tests {
             .into_iter()
             .map(|arb| arb.event.hint.hash)
             .collect::<Vec<_>>()
-            .contains(&juicy_tx_hash));
+            .contains(&juicy_tx.hash));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_finds_juicy_arb() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let juicy_tx = get_juicy_tx();
+        let mut event_map = H256Map::new();
+        event_map.insert(juicy_tx.hash, get_juicy_event());
+        let res = client.backrun_tx(juicy_tx, &event_map).await?;
+        println!("res: {:#?}", res);
+        assert!(res.max_profit > 0.into());
         Ok(())
     }
 }

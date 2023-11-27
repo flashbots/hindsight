@@ -10,10 +10,7 @@ use ethers::{
 };
 use foundry_contracts::brain_dance::BRAINDANCE_BYTECODE;
 use hindsight_core::{
-    eth_client::{WsClient, WsProvider},
-    evm::fork_factory::ForkFactory,
-    interfaces::BlockInfo,
-    util::WETH,
+    eth_client::WsProvider, evm::fork_factory::ForkFactory, interfaces::BlockInfo, util::WETH,
     Result,
 };
 use lazy_static::lazy_static;
@@ -53,7 +50,7 @@ pub fn get_price_v3(liquidity: U256, sqrt_price_x96: U256, token0_decimals: U256
     Ok((reserves1 * U256::from(10).pow(token0_decimals)) / reserves0)
 }
 
-pub async fn get_pair_tokens(client: &WsClient, pair: Address) -> Result<(Address, Address)> {
+pub async fn get_pair_tokens(client: Arc<WsProvider>, pair: Address) -> Result<(Address, Address)> {
     abigen!(
         IPairTokens,
         r#"[
@@ -61,27 +58,30 @@ pub async fn get_pair_tokens(client: &WsClient, pair: Address) -> Result<(Addres
             function token1() external view returns (address)
         ]"#
     );
-    let contract = IPairTokens::new(pair, client.get_provider());
+    let contract = IPairTokens::new(pair, client.clone());
     let token0 = contract.token_0().call().await?;
     let token1 = contract.token_1().call().await?;
     Ok((token0, token1))
 }
 
-pub async fn get_decimals(client: &WsClient, token: Address) -> Result<U256> {
+pub async fn get_decimals(client: Arc<WsProvider>, token: Address) -> Result<U256> {
     abigen!(
         IERC20,
         r#"[
             function decimals() external view returns (uint256)
         ]"#
     );
-    let contract = IERC20::new(token, client.get_provider());
+    let contract = IERC20::new(token, client.clone());
     let decimals = contract.decimals().call().await?;
     Ok(decimals)
 }
 
 /// Get all v2 pair addresses by calling `getPair` on each supported
 /// factory contract via `eth_call`.
-async fn get_v2_pairs(client: &WsClient, pair_tokens: (Address, Address)) -> Result<Vec<Address>> {
+async fn get_v2_pairs(
+    client: Arc<WsProvider>,
+    pair_tokens: (Address, Address),
+) -> Result<Vec<Address>> {
     abigen!(
         IUniswapV2Factory,
         r#"[
@@ -90,11 +90,11 @@ async fn get_v2_pairs(client: &WsClient, pair_tokens: (Address, Address)) -> Res
     );
     let uni_factory = IUniswapV2Factory::new(
         "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f".parse::<H160>()?,
-        client.get_provider(),
+        client.clone(),
     );
     let sushi_factory = IUniswapV2Factory::new(
         "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac".parse::<H160>()?,
-        client.get_provider(),
+        client.clone(),
     );
 
     let uni_pair: Result<Address, _> = uni_factory
@@ -140,17 +140,17 @@ async fn get_v3_pair(
 /// Get pair address from all supported factories, including the given pair.
 /// Filter what I return if you need to.
 pub async fn get_all_trading_pools(
-    client: &WsClient,
+    client: Arc<WsProvider>,
     pair_tokens: (Address, Address),
 ) -> Result<Vec<PairPool>> {
     let mut all_pairs = vec![];
     // push v3 pair (there should only be one for a given fee, which we hard-code to 3000 in get_v3_pair)
     all_pairs.push(PairPool {
-        address: get_v3_pair(client.get_provider(), pair_tokens).await?,
+        address: get_v3_pair(client.clone(), pair_tokens).await?,
         variant: PoolVariant::UniswapV3,
     });
     // v2 pairs pull from multiple v2 clones
-    let v2_pairs = get_v2_pairs(&client, pair_tokens).await?;
+    let v2_pairs = get_v2_pairs(client.clone(), pair_tokens).await?;
     all_pairs.append(
         &mut v2_pairs
             .into_iter()
@@ -189,33 +189,30 @@ fn inject_braindance_code(fork_factory: &mut ForkFactory) {
         bytecode.to_owned(),
         rkeccak256(BRAINDANCE_BYTECODE.0.to_owned()),
     );
-
-    // setup braindance contract controller
-    let mut value: [u8; 32] = [0; 32];
-    parse_ether(1337).unwrap().to_big_endian(&mut value);
-    let codehash = rkeccak256(bytecode.bytecode.to_owned());
-    let account = AccountInfo::new(rU256::from_be_slice(&value), 0, codehash, bytecode);
-    fork_factory.insert_account_info(CONTROLLER_ADDR.0.into(), account);
 }
 
 pub fn set_weth_balance(fork_factory: &mut ForkFactory, address: rAddress, amount: rU256) {
-    // Get balance mapping of braindance contract inside of weth contract
-    let slot: U256 = ethers::utils::keccak256(abi::encode(&[
+    // Get balance mapping of address inside of weth contract
+    let slot: rU256 = rkeccak256(abi::encode(&[
         abi::Token::Address((address.0).0.into()),
         abi::Token::Uint(U256::from(3)),
     ]))
     .into();
 
-    let mut slotslice: [u8; 32] = [0; 32];
-    slot.to_big_endian(&mut slotslice);
-
     fork_factory
-        .insert_account_storage(WETH.0.into(), rU256::from_be_bytes(slotslice), amount)
+        .insert_account_storage(WETH.0.into(), slot, amount)
         .expect(&format!("failed to insert account storage. slot={}", slot));
 }
 
 pub fn attach_braindance_module(fork_factory: &mut ForkFactory) {
     inject_braindance_code(fork_factory);
+
+    // setup controller account w/ a bunch of eth
+    let mut value: [u8; 32] = [0; 32];
+    parse_ether(1337).unwrap().to_big_endian(&mut value);
+    let account = AccountInfo::from_balance(rU256::from_be_bytes(value));
+    fork_factory.insert_account_info(CONTROLLER_ADDR.0.into(), account);
+
     set_weth_balance(
         fork_factory,
         BRAINDANCE_ADDR.0.into(),
@@ -226,4 +223,60 @@ pub fn attach_braindance_module(fork_factory: &mut ForkFactory) {
         ETH_DEV_ADDRESS.0.into(),
         *BRAINDANCE_START_BALANCE,
     );
+    set_weth_balance(
+        fork_factory,
+        CONTROLLER_ADDR.0.into(),
+        *BRAINDANCE_START_BALANCE,
+    );
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use hindsight_core::{
+        eth_client::test::get_test_ws_client,
+        evm::state_diff::{StateDiff, ToCacheDb},
+    };
+    use revm::db::DatabaseRef;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_sets_weth_balance() {
+        let client = get_test_ws_client().await.unwrap();
+        let block_num = client.provider.get_block_number().await.unwrap();
+
+        ////////////////////// this should all be a function ////////////////
+        let block_traces = client
+            .get_block_traces(
+                &client
+                    .provider
+                    .get_block_with_txs(block_num)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let state_diff = StateDiff::from(block_traces);
+        let initial_db = state_diff
+            .to_cache_db(&client, Some(0.into()))
+            .await
+            .unwrap();
+        let mut fork_factory = ForkFactory::new_sandbox_factory(
+            client.arc_provider(),
+            initial_db,
+            Some(block_num.into()),
+        );
+        /////////////////////////////////////////////////////////////////////
+
+        set_weth_balance(
+            &mut fork_factory,
+            ETH_DEV_ADDRESS.0.into(),
+            *BRAINDANCE_START_BALANCE,
+        );
+        let db = fork_factory.new_sandbox_fork();
+        let eth_dev_balance = db
+            .storage(ETH_DEV_ADDRESS.0.into(), rU256::from(3))
+            .unwrap();
+        assert_eq!(eth_dev_balance, *BRAINDANCE_START_BALANCE);
+    }
 }

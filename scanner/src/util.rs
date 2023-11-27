@@ -20,7 +20,7 @@ pub async fn fetch_txs(client: &WsClient, events: &[EventHistory]) -> Result<Vec
     let mut handles = vec![];
 
     for tx_hash in tx_hashes.into_iter() {
-        let provider = client.get_provider();
+        let provider = client.arc_provider();
         handles.push(tokio::task::spawn(async move {
             let tx = &provider.get_transaction(tx_hash.to_owned()).await;
             if let Ok(tx) = tx {
@@ -57,7 +57,7 @@ pub async fn get_balance_call(
             function balanceOf(address account) external view returns (uint256)
         ]"#
     );
-    let contract = IERC20::new(token, client.get_provider());
+    let contract = IERC20::new(token, client.arc_provider());
     Ok(contract.balance_of(account).tx)
 }
 

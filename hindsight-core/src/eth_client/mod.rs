@@ -28,7 +28,7 @@ impl WsClient {
     }
 
     /// this feels hacky... is there a better way to do this?
-    pub fn get_provider(&self) -> Arc<WsProvider> {
+    pub fn arc_provider(&self) -> Arc<WsProvider> {
         Arc::new(self.provider.clone())
     }
 

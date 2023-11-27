@@ -10,13 +10,13 @@ use data::interfaces::{
 use ethers::providers::Middleware;
 use ethers::types::{Address, Transaction, H160, H256, I256, U256};
 use futures::future;
-use hindsight_core::evm::fork_db::ForkDB;
 use hindsight_core::{anyhow, debug, error::HindsightError, eth_client::WsClient, info, Result};
+use hindsight_core::{eth_client::WsProvider, evm::fork_db::ForkDB};
 use mev_share_sse::{EventHistory, EventTransactionLog};
 use revm::EVM;
 use std::{str::FromStr, sync::Arc};
 
-const MAX_DEPTH: usize = 7;
+const MAX_DEPTH: usize = 6;
 const STEP_INTERVALS: usize = 15;
 
 fn braindance_starting_balance() -> U256 {
@@ -27,7 +27,7 @@ fn braindance_starting_balance() -> U256 {
 ///
 /// May derive multiple trades from a single tx.
 async fn derive_trade_params(
-    client: Arc<WsClient>,
+    client: Arc<WsProvider>,
     tx: Transaction,
     event: &EventHistory,
 ) -> Result<Vec<UserTradeParams>> {
@@ -54,7 +54,6 @@ async fn derive_trade_params(
     debug!("swap logs {:?}", swap_logs);
     // derive trade direction from (full) tx logs
     let tx_receipt = client
-        .provider
         .get_transaction_receipt(tx.hash)
         .await?
         .ok_or(HindsightError::TxNotLanded(tx.hash))?;
@@ -83,11 +82,11 @@ async fn derive_trade_params(
 
         // get token addrs from pool address
         // tokens may vary per swap log -- many swaps can happen in one tx
-        let (token0, token1) = get_pair_tokens(&client.clone(), pool_address).await?;
+        let (token0, token1) = get_pair_tokens(client.clone(), pool_address).await?;
         debug!("token0\t{:?}\ntoken1\t{:?}", token0, token1);
         let token0_is_weth =
             token0 == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse::<H160>()?;
-        let token0_decimals = get_decimals(&client, token0).await?;
+        let token0_decimals = get_decimals(client.clone(), token0).await?;
 
         // if a Sync event (UniV2) is detected from the tx logs, it can be used to get the new price
         let sync_log: Option<_> = tx_receipt
@@ -142,7 +141,7 @@ async fn derive_trade_params(
         let token_in = if swap_0_for_1 { token0 } else { token1 };
         let token_out = if swap_0_for_1 { token1 } else { token0 };
         // find all pairs that aren't the one that the user swapped on
-        let arb_pools: Vec<PairPool> = get_all_trading_pools(&client, (token_in, token_out))
+        let arb_pools: Vec<PairPool> = get_all_trading_pools(client.clone(), (token_in, token_out))
             .await?
             .into_iter()
             .filter(|pool| !pool.address.is_zero())
@@ -352,13 +351,13 @@ async fn step_arb(
 
 /// Find the optimal backrun for a given tx.
 pub async fn find_optimal_backrun_amount_in_out(
-    client: Arc<WsClient>,
+    client: &WsClient,
     user_tx: Transaction,
     event: &EventHistory,
     block_info: &BlockInfo,
 ) -> Result<Vec<SimArbResult>> {
     let start_balance = braindance_starting_balance();
-    let params = derive_trade_params(client.clone(), user_tx.to_owned(), event).await?;
+    let params = derive_trade_params(client.arc_provider(), user_tx.to_owned(), event).await?;
     info!("params {:?}", params);
 
     // look at price (TKN/ETH) on each exchange to determine which exchange to arb on
@@ -483,7 +482,7 @@ pub async fn find_optimal_backrun_amount_in_out(
 
                 // a new EVM is spawned inside this function, where the user tx is executed on a fresh fork before our backrun
                 let res = step_arb(
-                    client,
+                    Arc::new(client),
                     user_tx,
                     block_info,
                     params.to_owned(),
@@ -594,7 +593,7 @@ mod test {
     use hindsight_core::evm::fork_db::ForkDB;
 
     async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-        let block_info = get_block_info(client.get_provider(), block_num).await?;
+        let block_info = get_block_info(client.arc_provider(), block_num).await?;
         client.fork_evm(block_info.number.as_u64()).await
     }
 
@@ -610,6 +609,7 @@ mod test {
         let res = sim_bundle(&mut evm, vec![tx]).await;
         assert!(res.is_ok());
         let res = res.unwrap();
+        println!("result {:#?}", res);
         assert!(res[0].is_success());
         Ok(())
     }
@@ -621,7 +621,7 @@ mod test {
         let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
-        let pools = get_all_trading_pools(&client, (weth, tkn)).await?;
+        let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
         let gas_price = U256::from(1_000_000_000) * 420; // 420 gwei
 
         // buy 69 ETH worth of SHIB on exchange 0
@@ -634,7 +634,9 @@ mod test {
             tkn,
             gas_price,
             None,
-        )?;
+        );
+        assert!(res.is_ok());
+        let res = res.unwrap();
         assert!(res > 0.into());
         // sell all the SHIB on exchange 1
         let _ = commit_braindance_swap(
@@ -647,6 +649,34 @@ mod test {
             gas_price,
             None,
         )?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_univ3_sim_price() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await?;
+        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
+        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
+        let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
+
+        let res = sim_price_v3(pools[0].address, weth, tkn, &mut evm).await?;
+        assert!(res > 0.into());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_univ2_sim_price() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await?;
+        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
+        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
+        let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
+
+        let res = sim_price_v2(pools[0].address, weth, tkn, &mut evm).await?;
+        assert!(res > 0.into());
         Ok(())
     }
 }

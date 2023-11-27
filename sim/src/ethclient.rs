@@ -38,15 +38,14 @@ impl ForkEVM for WsClient {
             .ok_or(HindsightError::BlockNotFound(block_num))?;
 
         let block_traces = self.get_block_traces(&block).await?;
-        let state_diff = StateDiff::from_block_traces(block_traces).await?;
+        let state_diff = StateDiff::from(block_traces);
         let cache_db = state_diff
-            .to_cache_db(&self.to_owned(), Some(block_num.into()))
+            .to_cache_db(&self, Some(block_num.into()))
             .await?;
 
         let mut fork_factory =
-            ForkFactory::new_sandbox_factory(self.get_provider(), cache_db, fork_block);
+            ForkFactory::new_sandbox_factory(self.arc_provider(), cache_db, fork_block);
 
-        // TODO: replace this
         attach_braindance_module(&mut fork_factory);
 
         let mut evm = EVM::new();
