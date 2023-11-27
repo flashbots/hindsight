@@ -586,16 +586,10 @@ async fn sim_arb_single(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{get_all_trading_pools, get_block_info, ETH};
+    use crate::util::{get_all_trading_pools, ETH};
     use anyhow::Result;
     use ethers::providers::Middleware;
     use hindsight_core::eth_client::test::get_test_ws_client;
-    use hindsight_core::evm::fork_db::ForkDB;
-
-    async fn setup_test_evm(client: &WsClient, block_num: u64) -> Result<EVM<ForkDB>> {
-        let block_info = get_block_info(client.arc_provider(), block_num).await?;
-        client.fork_evm(block_info.number.as_u64()).await
-    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_tx() -> Result<()> {
@@ -605,7 +599,7 @@ mod test {
                 .unwrap();
         let tx = client.provider.get_transaction(tx_hash).await?.unwrap();
         let block_num = tx.block_number.unwrap() - 1;
-        let mut evm = setup_test_evm(&client, block_num.as_u64()).await?;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
         let res = sim_bundle(&mut evm, vec![tx]).await;
         assert!(res.is_ok());
         let res = res.unwrap();
@@ -617,8 +611,9 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_simulates_swaps() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_num = client.provider.get_block_number().await?;
-        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let block_num = client.provider.get_block_number().await? - 4;
+        // let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
         let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
@@ -655,8 +650,8 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_univ3_sim_price() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_num = client.provider.get_block_number().await?;
-        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let block_num = client.provider.get_block_number().await? - 4;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
         let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
@@ -669,14 +664,20 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_univ2_sim_price() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_num = client.provider.get_block_number().await?;
-        let mut evm = setup_test_evm(&client, block_num.as_u64() - 4).await?;
+        let block_num = client.provider.get_block_number().await? - 4;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
         let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
         let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
         let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
+        println!("pools {:?}", pools);
 
-        let res = sim_price_v2(pools[0].address, weth, tkn, &mut evm).await?;
-        assert!(res > 0.into());
+        let pool = pools
+            .iter()
+            .find(|pool| pool.variant == PoolVariant::UniswapV2)
+            .unwrap();
+        let price = sim_price_v2(pool.address, weth, tkn, &mut evm).await?;
+        println!("price {:?}", price);
+        assert!(price > 0.into());
         Ok(())
     }
 }

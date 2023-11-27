@@ -165,9 +165,6 @@ pub async fn sim_price_v2(
         ],
         &output,
     )?;
-    // println!("sim_price_v2 output: {:?}", output);
-    println!("sim_price_v2 tokens: {:?}", tokens);
-
     let reserves_0 = tokens[0].clone().into_uint().ok_or::<Error>(
         HindsightError::MathError(format!(
             "reserves_0 failed to cast token to uint (token={})",
@@ -210,7 +207,7 @@ pub async fn sim_price_v2(
 }
 
 pub fn call_function(evm: &mut EVM<ForkDB>, method: &str, contract: Address) -> Result<Bytes> {
-    debug!("calling method {:?}", method);
+    debug!("calling function {:?}", method);
     let tx: TransactionRequest = TransactionRequest {
         from: Some(*ETH_DEV_ADDRESS),
         to: Some(contract.into()),
@@ -352,7 +349,6 @@ mod tests {
     use std::str::FromStr;
 
     use crate::ethclient::ForkEVM;
-    use crate::util::get_block_info;
     use ethers::{
         providers::Middleware,
         types::{Address, U256},
@@ -362,12 +358,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v2() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_info = get_block_info(
-            client.arc_provider(),
-            client.provider.get_block_number().await?.as_u64(),
-        )
-        .await?;
-        let mut evm = client.fork_evm(block_info.number.as_u64()).await?;
+        let mut evm = client
+            .fork_evm(client.provider.get_block_number().await?.as_u64())
+            .await?;
         let target_pool = Address::from_str("0x811beEd0119b4AfCE20D2583EB608C6F7AF1954f")?; // UniV2 SHIB/WETH
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
@@ -380,12 +373,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_gets_sim_price_v3() -> Result<()> {
         let client = get_test_ws_client().await?;
-        let block_info = get_block_info(
-            client.arc_provider(),
-            client.provider.get_block_number().await?.as_u64(),
-        )
-        .await?;
-        let mut evm = client.fork_evm(block_info.number.as_u64()).await?;
+        let mut evm = client
+            .fork_evm(client.provider.get_block_number().await?.as_u64())
+            .await?;
         let target_pool = Address::from_str("0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec")?; // UniV3 SHIB/WETH (fee=3000)
         let token_in = Address::from_str("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")?; // WETH
         let token_out = Address::from_str("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")?; // SHIB
