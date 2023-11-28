@@ -8,15 +8,13 @@ use ethers::{
     types::{Address, U256},
     utils::parse_ether,
 };
-use foundry_contracts::brain_dance::BRAINDANCE_BYTECODE;
+use foundry_contracts::brain_dance::{BRAINDANCE_BYTECODE, BRAINDANCE_DEPLOYED_BYTECODE};
 use hindsight_core::{
     eth_client::WsProvider, evm::fork_factory::ForkFactory, interfaces::BlockInfo, util::WETH,
     Result,
 };
 use lazy_static::lazy_static;
-use revm::primitives::{
-    keccak256 as rkeccak256, AccountInfo, Address as rAddress, Bytecode, U256 as rU256,
-};
+use revm::primitives::{keccak256 as rkeccak256, AccountInfo, Address as rAddress, U256 as rU256};
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math::Q96};
 
 pub use ethers::utils::WEI_IN_ETHER as ETH;
@@ -24,13 +22,13 @@ pub use ethers::utils::WEI_IN_ETHER as ETH;
 use crate::evm::inject_contract;
 
 lazy_static! {
-    pub static ref ETH_DEV_ADDRESS: Address = "0x9999999999999999999999999999999999999999"
+    pub static ref ETH_DEV_ADDRESS: Address = "0x9999999999999999999999999999999999999991"
         .parse::<Address>()
         .expect("invalid address");
-    pub static ref BRAINDANCE_ADDR: Address = "0xc433333333333333333333333333333333333353"
+    pub static ref BRAINDANCE_ADDR: Address = "0xc4b1333333333333333333333333333333333353"
         .parse::<Address>()
         .expect("invalid address");
-    pub static ref CONTROLLER_ADDR: Address = "0xf00000000000000000000000000000000000000d"
+    pub static ref CONTROLLER_ADDR: Address = "0xf00d00000000000000000000000000000000f00d"
         .parse::<Address>()
         .expect("invalid address");
     pub static ref BRAINDANCE_START_BALANCE: rU256 =
@@ -181,13 +179,12 @@ pub async fn get_block_info(provider: Arc<WsProvider>, block_num: u64) -> Result
 }
 
 fn inject_braindance_code(fork_factory: &mut ForkFactory) {
-    let bytecode = Bytecode::new_raw(BRAINDANCE_BYTECODE.0.to_owned().into());
     // put contract onchain
     inject_contract(
         fork_factory,
         BRAINDANCE_ADDR.0.into(),
-        bytecode.to_owned(),
-        rkeccak256(BRAINDANCE_BYTECODE.0.to_owned()),
+        BRAINDANCE_BYTECODE.0.to_owned().into(),
+        BRAINDANCE_DEPLOYED_BYTECODE.0.to_owned().into(),
     );
 }
 
@@ -207,11 +204,12 @@ pub fn set_weth_balance(fork_factory: &mut ForkFactory, address: rAddress, amoun
 pub fn attach_braindance_module(fork_factory: &mut ForkFactory) {
     inject_braindance_code(fork_factory);
 
-    // setup controller account w/ a bunch of eth
+    // setup controller account & eth dev account w/ a bunch of eth
     let mut value: [u8; 32] = [0; 32];
     parse_ether(1337).unwrap().to_big_endian(&mut value);
-    let account = AccountInfo::from_balance(rU256::from_be_bytes(value));
-    fork_factory.insert_account_info(CONTROLLER_ADDR.0.into(), account);
+    let account_info = AccountInfo::from_balance(rU256::from_be_bytes(value));
+    fork_factory.insert_account_info(CONTROLLER_ADDR.0.into(), account_info.to_owned());
+    fork_factory.insert_account_info(ETH_DEV_ADDRESS.0.into(), account_info);
 
     set_weth_balance(
         fork_factory,

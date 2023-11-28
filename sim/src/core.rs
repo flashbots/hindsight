@@ -586,9 +586,15 @@ async fn sim_arb_single(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{get_all_trading_pools, ETH};
+    use crate::{
+        evm::call_function,
+        util::{get_all_trading_pools, BRAINDANCE_ADDR, ETH},
+    };
     use anyhow::Result;
-    use ethers::providers::Middleware;
+    use ethers::{
+        abi::{decode as abi_decode, ParamType},
+        providers::Middleware,
+    };
     use hindsight_core::eth_client::test::get_test_ws_client;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -678,6 +684,24 @@ mod test {
         let price = sim_price_v2(pool.address, weth, tkn, &mut evm).await?;
         println!("price {:?}", price);
         assert!(price > 0.into());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_braindance_deployment() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await? - 1;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
+        let output = call_function(&mut evm, "bde2b573" /* hey() */, *BRAINDANCE_ADDR)?;
+        let tokens = abi_decode(&[ParamType::Uint(256)], &output)?;
+        let result = tokens[0]
+            .clone()
+            .into_uint()
+            .ok_or(HindsightError::CallError(
+                "failed to convert token into uint".to_owned(),
+            ))?;
+        println!("res {:?}", result);
+        assert_eq!(result, 0x42.into());
         Ok(())
     }
 }

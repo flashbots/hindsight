@@ -13,6 +13,10 @@ import "./lib/SafeMath.sol";
 contract BrainDance {
     using SafeMath for uint;
 
+    function hey() public pure returns (uint256) {
+        return 0x42;
+    }
+
     function calculateSwapV2(
         uint amountIn,
         address targetPair,
