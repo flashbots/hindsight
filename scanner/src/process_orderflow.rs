@@ -261,7 +261,10 @@ mod tests {
         event_map.insert(juicy_tx.hash, get_juicy_event());
         let res = client.backrun_tx(juicy_tx, &event_map).await?;
         println!("res: {:#?}", res);
-        assert!(res.max_profit > 0.into());
+        assert_eq!(
+            res.max_profit,
+            U256::from_dec_str("13823538340758129").unwrap()
+        );
         Ok(())
     }
 }
