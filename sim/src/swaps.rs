@@ -187,3 +187,64 @@ pub fn commit_braindance_swap(
     };
     Ok(balance)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ethclient::ForkEVM;
+    use crate::util::get_all_trading_pools;
+    use ethers::{abi::decode as abi_decode, middleware::Middleware};
+    use hindsight_core::eth_client::test::get_test_ws_client;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_univ3_sim_price() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await? - 4;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
+        let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
+        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
+        let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
+
+        let res = sim_price_v3(pools[0].address, weth, tkn, &mut evm).await?;
+        assert!(res > 0.into());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn it_gets_univ2_sim_price() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await? - 4;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
+        let weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".parse::<Address>()?;
+        let tkn = "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE".parse::<Address>()?; // SHIB (mainnet)
+        let pools = get_all_trading_pools(client.arc_provider(), (weth, tkn)).await?;
+        println!("pools {:?}", pools);
+
+        let pool = pools
+            .iter()
+            .find(|pool| pool.variant == PoolVariant::UniswapV2)
+            .unwrap();
+        let price = sim_price_v2(pool.address, weth, tkn, &mut evm).await?;
+        println!("price {:?}", price);
+        assert!(price > 0.into());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_braindance_deployment() -> Result<()> {
+        let client = get_test_ws_client().await?;
+        let block_num = client.provider.get_block_number().await? - 1;
+        let mut evm = client.fork_evm(block_num.as_u64()).await?;
+        let output = call_function(&mut evm, "bde2b573" /* hey() */, *BRAINDANCE_ADDR)?;
+        let tokens = abi_decode(&[ParamType::Uint(256)], &output)?;
+        let result = tokens[0]
+            .clone()
+            .into_uint()
+            .ok_or(HindsightError::CallError(
+                "failed to convert token into uint".to_owned(),
+            ))?;
+        println!("res {:?}", result);
+        assert_eq!(result, 0x42.into());
+        Ok(())
+    }
+}
