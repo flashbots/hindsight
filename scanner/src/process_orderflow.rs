@@ -216,9 +216,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn it_processes_orderflow() -> Result<()> {
-        println!("starting test...");
         let client = get_test_ws_client().await?;
-        println!("client: {:#?}", client);
 
         // data from an actual juicy event
         let juicy_event: EventHistory = get_juicy_event();

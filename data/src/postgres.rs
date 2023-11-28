@@ -76,7 +76,6 @@ fn select_arbs_query(filter: &ArbFilterParams, limit: Option<i64>, offset: Optio
     if let Some(offset) = offset {
         query.push_str(&format!(" OFFSET {}", offset));
     }
-    println!("query: {}", query);
     query
 }
 
@@ -146,7 +145,6 @@ impl ArbDb for PostgresConnect {
                     NaiveDateTime::from_timestamp_millis(arb.event.timestamp as i64 * 1000)
                         .expect("failed to parse timestamp");
 
-                println!("writing arb to postgres: {} {} eth", txhash, max_profit);
                 // clone these to give to the tokio thread
                 let client = self.client.clone();
                 let arb = arb.clone();

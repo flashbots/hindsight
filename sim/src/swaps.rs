@@ -185,6 +185,5 @@ pub fn commit_braindance_swap(
             Err(e) => return err!("failed to decode swap result: {:?}", e),
         },
     };
-    println!("committed tx. balance: {}", balance);
     Ok(balance)
 }

@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env();
 
     ctrlc::set_handler(move || {
-        println!("\nstopping hindsight!");
+        info!("\nstopping hindsight!");
         std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
