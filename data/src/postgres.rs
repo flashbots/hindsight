@@ -303,6 +303,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_filters_arbs() -> Result<()> {
+        let db = get_db().await?;
+        let res = db
+            .write_arbs(&vec![SimArbResultBatch::test_example()])
+            .await;
+        assert!(res.is_ok());
+
+        // positive test
+        let token_pair = TokenPair {
+            token: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+                .to_lowercase()
+                .parse::<H160>()
+                .unwrap(),
+            weth: *WETH,
+        };
+        let arbs = db
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: None,
+                    block_end: None,
+                    timestamp_start: None,
+                    timestamp_end: None,
+                    min_profit: None,
+                    token_pair: Some(token_pair.to_owned()),
+                },
+                None,
+                None,
+            )
+            .await?;
+        println!("arbs (it_filters_arbs): {:?}", arbs);
+        assert!(arbs.len() > 0);
+        assert!(arbs[0].results[0].user_trade.tokens.token == token_pair.token);
+
+        // negative test
+        let token_pair = TokenPair {
+            token: "0xffffffffa150d79219dCF64E1E6Cc01f0B64C4cE"
+                .to_lowercase()
+                .parse::<H160>()
+                .unwrap(),
+            weth: *WETH,
+        };
+        let arbs = db
+            .read_arbs(
+                &ArbFilterParams {
+                    block_start: None,
+                    block_end: None,
+                    timestamp_start: None,
+                    timestamp_end: None,
+                    min_profit: None,
+                    token_pair: Some(token_pair.to_owned()),
+                },
+                None,
+                None,
+            )
+            .await?;
+        println!("arbs (it_filters_arbs): {:?}", arbs);
+        assert!(arbs.len() == 0);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn it_reads_from_db() -> Result<()> {
         let db = get_db().await?;
         let res = db
