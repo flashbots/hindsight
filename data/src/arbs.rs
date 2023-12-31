@@ -9,7 +9,7 @@ use hindsight_core::{
     interfaces::{SimArbResultBatch, StoredArbsRanges, TokenPair},
     Result,
 };
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 use tokio::sync::Mutex;
 
 const NUM_ARBS_PER_READ: i64 = 3000;
@@ -47,6 +47,12 @@ impl ArbFilterParams {
 pub enum WriteEngine {
     File(Option<String>),
     Db(DbEngine),
+}
+
+impl Debug for dyn ArbDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[ArbDb]")
+    }
 }
 
 #[async_trait]

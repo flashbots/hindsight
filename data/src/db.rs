@@ -7,6 +7,7 @@ use crate::{
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
 
+#[derive(Debug)]
 pub struct Db {
     pub connect: ArbDatabase,
 }
