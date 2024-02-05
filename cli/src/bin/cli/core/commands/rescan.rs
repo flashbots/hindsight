@@ -9,7 +9,7 @@ use hindsight_core::eth_client::WsClient;
 use hindsight_core::interfaces::SimArbResultBatch;
 use hindsight_core::mev_share_sse::{EventClient, EventHistory, EventHistoryParams};
 use hindsight_core::util::H256Map;
-use hindsight_core::{info, Result};
+use hindsight_core::{debug, info, Result};
 use scanner::event_history::event_history_url;
 use scanner::process_orderflow::ArbClient;
 use serde::Deserialize;
@@ -47,23 +47,17 @@ fn ask_to_continue() -> Result<()> {
     Ok(())
 }
 
-pub async fn run(
-    tx_events: &[TxEvent],
-    ws_client: &WsClient,
-    mev_share: &EventClient,
-    write_db: &ArbDatabase,
-) -> Result<()> {
-    let original_events_len = tx_events.len();
-    info!("rescanning {} events", tx_events.len());
-
-    // get event history for each event_block asynchronously
-    let mut handles = Vec::new();
-    let matched_events = Arc::new(Mutex::new(0u32));
-
-    // Open or create the progress log file
+/// Loads the log file and returns a vector of tx_hashes that have already
+/// been re-scanned.
+///
+/// This is used to prevent re-scanning the same tx_hashes multiple times before
+/// the entire list from the CSV file is processed.
+async fn read_logfile() -> Result<Vec<H256>> {
+    debug!("reading log file: {}", LOGFILE);
     let mut logreader =
         tokio::io::BufReader::new(OpenOptions::new().read(true).open(LOGFILE).await?);
 
+    debug!("opened logfile");
     let mut logged_tx_hashes = Vec::new();
     let mut line = String::new();
     while let Ok(bytes_read) = logreader.read_line(&mut line).await {
@@ -71,10 +65,64 @@ pub async fn run(
             break;
         }
         let tx_hash = line.trim();
-        logged_tx_hashes.push(tx_hash.parse()?);
+        logged_tx_hashes.push(
+            tx_hash
+                .parse()
+                .expect(&format!("failed to parse tx_hash {}", tx_hash)),
+        );
         line.clear();
     }
-    println!("logged_tx_hashes: {:?}", logged_tx_hashes);
+    debug!("logged_tx_hashes: {:?}", logged_tx_hashes);
+    Ok(logged_tx_hashes)
+}
+
+/// Write a new event hash to the log file.
+async fn write_logfile(event_hash: H256) -> Result<()> {
+    let mut logwriter = tokio::io::BufWriter::new(
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(LOGFILE)
+            .await?,
+    );
+    logwriter
+        .write_all(format!("{:?}\n", event_hash).as_bytes())
+        .await?;
+    logwriter.flush().await?;
+    Ok(())
+}
+
+/// Simulate backrun-arbs on `tx_events`, and add their
+/// simulation results to the DB.
+///
+/// _Note: This function is called from the `rescan` command in the CLI._
+///
+/// **Warning**: _This function will process every given event at the same time.
+/// If you have a large number of events (>50), it's very easy to overload your
+/// RPC endpoint. The CLI invocation of this will batch the events into
+/// groups of 10, but if you call this directly, you may have to implement
+/// your own batching logic._
+pub async fn run(
+    tx_events: &[TxEvent],
+    ws_client: &WsClient,
+    mev_share: &EventClient,
+    write_db: &ArbDatabase,
+) -> Result<()> {
+    info!(
+        "rescanning {} events: {:#?}",
+        tx_events.len(),
+        tx_events
+            .iter()
+            .map(|event| event.tx_hash)
+            .collect::<Vec<H256>>()
+    );
+
+    // get event history for each event_block asynchronously
+    let mut handles = Vec::new();
+    let matched_events = Arc::new(Mutex::new(0u32));
+
+    // Open or create the progress log file
+    let logged_tx_hashes = read_logfile().await?;
 
     // define `TEST` in environment to enable regular interrupts
     // to prevent RPC from exploding during testing
@@ -82,25 +130,11 @@ pub async fn run(
         ask_to_continue()?;
     }
 
-    // if we've processed all the events, delete '.rescan.log'
-    if logged_tx_hashes.len() == original_events_len {
-        info!(
-            "all events have been processed. press y to delete '{}'",
-            LOGFILE
-        );
-        ask_to_continue()?;
-
-        tokio::fs::remove_file(LOGFILE).await?;
-        return Ok(());
-    }
-
-    // before we start scanning, read '.rescan.log' filter tx_events for tx_hashes that are not in the log
+    // before we start scanning, read '.rescan.log'
+    // filter tx_events for tx_hashes that are not in the log
     let tx_events = tx_events
         .iter()
         .filter(|event| !logged_tx_hashes.contains(&event.tx_hash));
-
-    // if the number of events in '.rescan.log' is equal to the number of events in tx_events, then we're done
-    // and we delete '.rescan.log'
 
     for event in tx_events {
         info!("rescanning event: {:?}", event.tx_hash);
@@ -111,6 +145,7 @@ pub async fn run(
         let write_db = write_db.clone();
         let matched_events = matched_events.clone();
 
+        // spawn a new task (green thread) for each event
         let handle = tokio::task::spawn(async move {
             let event_history = mev_share
                 .event_history(
@@ -120,8 +155,8 @@ pub async fn run(
                         block_end: Some(event_block.into()),
                         timestamp_start: None,
                         timestamp_end: None,
-                        limit: Some(50),
-                        offset: Some(0),
+                        limit: None,
+                        offset: None,
                     },
                 )
                 .await?;
@@ -146,22 +181,15 @@ pub async fn run(
 
                 *matched_events.lock().unwrap() += 1;
 
-                // when we successfully process an arb, write the event hash to '.rescan.log'
-                let mut logwriter = tokio::io::BufWriter::new(
-                    OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(LOGFILE)
-                        .await?,
-                );
-                logwriter
-                    .write_all(format!("{:?}\n", event_hash).as_bytes())
-                    .await?;
-                logwriter.flush().await?;
-
+                // when we successfully process an arb, save the event hash in the logfile
+                if sim_result.results.len() > 0 {
+                    write_logfile(event_hash).await?;
+                } else {
+                    info!("no arb found for event {:?}", event_hash);
+                }
                 return Result::<Option<SimArbResultBatch>>::Ok(Some(sim_result));
             }
-
+            // if the transaction is not found, return None
             Result::<Option<SimArbResultBatch>>::Ok(None)
         });
 
@@ -172,6 +200,7 @@ pub async fn run(
         let _ = handle.await?;
         // could do something with the return value here
         // it's an Option<SimArbResultBatch>
+        // idea: log failed rescans here by checking for Ok(None) from the handle
     }
 
     let j = *matched_events.lock().unwrap();
@@ -181,6 +210,7 @@ pub async fn run(
 }
 
 /// Parse a CSV file into a vector of `TxEvent`s.
+/// These are the transactions that we want to re-scan.
 ///
 /// **Row format:**
 /// ```csv
