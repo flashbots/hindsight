@@ -18,7 +18,17 @@ use revm::EVM;
 use std::{str::FromStr, sync::Arc};
 
 const MAX_DEPTH: usize = 6;
-const STEP_INTERVALS: usize = 15;
+const DEFAULT_JUICE_LEVEL: usize = 15;
+
+/// The number of intervals to simulate for each recursion in step_arb
+/// modify the juice level by setting JUICE_LEVEL in your environment
+fn juice_level() -> usize {
+    let val = std::env::var("JUICE_LEVEL");
+    val.map(|s|
+        // value exists, parse it, default if parsing fails
+        s.parse().unwrap_or(DEFAULT_JUICE_LEVEL))
+        .unwrap_or(DEFAULT_JUICE_LEVEL) // value doesn't exist, default
+}
 
 fn braindance_starting_balance() -> U256 {
     U256::from(10u64).pow(18.into()) * 420
@@ -489,7 +499,7 @@ pub async fn find_optimal_backrun_amount_in_out(
                     params.to_owned(),
                     None,
                     initial_range,
-                    STEP_INTERVALS,
+                    juice_level(),
                     None,
                     (start_pool, start_pool_variant),
                     (end_pool, end_pool_variant),
