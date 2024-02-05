@@ -46,6 +46,20 @@ pub enum Commands {
         )]
         db_engine: Option<DbEngine>,
     },
+    /// Rescan previous MEV-Share events from a CSV file and simulate arbitrage opportunities, saving results to DB.
+    Rescan {
+        /// Path to CSV file.
+        ///
+        /// Row format: `tx_hash,profit_eth,event_block,event_timestamp`
+        ///
+        /// _example row:_
+        /// `0x2b38211e0109bdf3b718f6cc1783fdd47c9e6b13858b0cfb9f528c6130c88ea4,0.003582784174380261,18042665,2023-09-01 15:42:22`
+        #[arg(short, long, required = true)]
+        file_path: String,
+        /// DB Engine to use to store arb data. Defaults to "postgres".
+        #[arg(short, long)]
+        db_engine: Option<DbEngine>,
+    },
     /// Export arbs from DB to a JSON file or another DB.
     Export {
         /// File to save arbs to.

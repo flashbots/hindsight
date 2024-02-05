@@ -235,8 +235,8 @@ async fn step_arb(
     // this could just be unwrapped, but paranoia is good when it's just in your code.
     let depth = depth.expect("depth should have been defined (recursively) by this point.");
 
-    // stop case: we have recursed three times and the range minimum is STILL 0, AND no profit
-    if range[0] == 0.into() && depth >= 3 && best_amount_out <= braindance_starting_balance() {
+    // stop case: we have recursed 4 times and the range minimum is STILL 0, AND no profit
+    if range[0] == 0.into() && depth >= 4 && best_amount_out <= braindance_starting_balance() {
         // Return (0, start_balance) to indicate that there was no arbitrage opportunity,
         // but the arb params (tokens, pools, etc) were still valid.
         // This ensures that the attempt is logged in the DB.

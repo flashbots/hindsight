@@ -18,7 +18,6 @@ impl DotEnv for Config {
         if let Err(err) = env_file_res {
             debug!("{}", err);
         }
-        println!("env {:#?}", env::vars());
         Config {
             mongo_url: env::var("MONGO_URL").expect("MONGO_URL must be set"),
             postgres_url: env::var("POSTGRES_URL").ok(),

@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
             let db_engine = match db_engine.unwrap_or_default() {
                 // ignore the configs the cli passes; they're populated w/ default vals
                 // we want to load vars from .env
+                // TODO: revisit this, seems wrong
                 DbEngine::Postgres(_) => DbEngine::Postgres(PostgresConfig::from_env()),
                 DbEngine::Mongo(_) => DbEngine::Mongo(MongoConfig::from_env()),
             };
@@ -92,6 +93,19 @@ async fn main() -> anyhow::Result<()> {
             };
             commands::scan::run(scan_options.to_owned(), &ws_client, &mevshare, &db.connect)
                 .await?;
+        }
+        Some(Commands::Rescan {
+            file_path,
+            db_engine,
+        }) => {
+            let db_engine = db_engine.unwrap_or(DbEngine::Postgres(PostgresConfig::from_env()));
+            let db = Db::new(db_engine).await;
+
+            // parse the CSV file into TxEvents
+            let tx_events = commands::rescan::parse_csv(&file_path).await?;
+
+            // run the rescan command
+            commands::rescan::run(&tx_events, &ws_client, &mevshare, &db.connect).await?;
         }
         Some(Commands::Export {
             // cli args:

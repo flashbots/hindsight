@@ -18,6 +18,7 @@ use mev_share_sse::{EventHistory, Hint};
 use rust_decimal::prelude::*;
 use std::sync::Arc;
 use tokio_postgres::{connect, Client, NoTls};
+use tracing::info;
 
 const ARBS_TABLE: &str = "hindsight";
 
@@ -148,6 +149,12 @@ impl ArbDb for PostgresConnect {
                 // clone these to give to the tokio thread
                 let client = self.client.clone();
                 let arb = arb.clone();
+
+                // quit early if this arb has no results
+                if arb.results.len() == 0 {
+                    info!("no profitable arbs found for tx {:?}. (skipped)", arb.event.hint.hash);
+                    return tokio::task::spawn(async move {});
+                }
 
                 let trade = &arb.results[0].user_trade;
                 let token = trade.tokens.token.to_owned();
