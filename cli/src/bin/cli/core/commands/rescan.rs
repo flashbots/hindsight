@@ -60,7 +60,7 @@ pub async fn run(
     let mut handles = Vec::new();
     let matched_events = Arc::new(Mutex::new(0u32));
 
-    // Open or create the .rescan.log file
+    // Open or create the progress log file
     let mut logreader =
         tokio::io::BufReader::new(OpenOptions::new().read(true).open(LOGFILE).await?);
 
@@ -84,7 +84,10 @@ pub async fn run(
 
     // if we've processed all the events, delete '.rescan.log'
     if logged_tx_hashes.len() == original_events_len {
-        info!("all events have been processed. press y to delete '.rescan.log'");
+        info!(
+            "all events have been processed. press y to delete '{}'",
+            LOGFILE
+        );
         ask_to_continue()?;
 
         tokio::fs::remove_file(LOGFILE).await?;
