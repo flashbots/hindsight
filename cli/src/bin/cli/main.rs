@@ -10,6 +10,7 @@ use data::{
 };
 use ethers::{types::H160, utils::parse_ether};
 use hindsight_core::{
+    debug,
     eth_client::WsClient,
     info,
     interfaces::{Config, TokenPair},
@@ -21,7 +22,9 @@ use std::thread::available_parallelism;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
+    debug!("parsing args...");
     let cli = Cli::parse_args();
+    debug!("loading .env file...");
     let config = Config::from_env();
 
     ctrlc::set_handler(move || {
@@ -31,9 +34,12 @@ async fn main() -> anyhow::Result<()> {
     .expect("Error setting Ctrl-C handler");
 
     let max_reconnects = cli.ws_max_reconnects.unwrap_or_default();
+    debug!("initializing ws client...");
     let ws_client = WsClient::new(Some(config.rpc_url_ws), max_reconnects).await?;
+    debug!("initializing mev-share client...");
     let mevshare = EventClient::default();
 
+    debug!("running command...");
     match cli.command {
         Some(Commands::Scan {
             // cli args:
@@ -104,8 +110,10 @@ async fn main() -> anyhow::Result<()> {
             // parse the CSV file into TxEvents
             let tx_events = commands::rescan::parse_csv(&file_path).await?;
 
-            // run the rescan command
-            commands::rescan::run(&tx_events, &ws_client, &mevshare, &db.connect).await?;
+            // run the rescan command with chunked concurrency
+            for chunk in tx_events.chunks(10) {
+                commands::rescan::run(chunk, &ws_client, &mevshare, &db.connect).await?;
+            }
         }
         Some(Commands::Export {
             // cli args:

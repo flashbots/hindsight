@@ -4,6 +4,7 @@ use ethers::{
     providers::{Provider, Ws},
     types::{Block, BlockTrace, TraceType, Transaction},
 };
+
 use std::sync::Arc;
 
 pub type WsProvider = Provider<Ws>;
