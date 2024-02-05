@@ -17,7 +17,6 @@ use hindsight_core::{
     mev_share_sse::EventClient,
     util::WETH,
 };
-use std::thread::available_parallelism;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -82,12 +81,7 @@ async fn main() -> anyhow::Result<()> {
                     (block_start.unwrap_or(1), timestamp_start.unwrap_or(1))
                 };
 
-            let batch_size = batch_size.unwrap_or(
-                available_parallelism()
-                    .map(|n| usize::from(n) / 2)
-                    .unwrap_or(4)
-                    .max(1),
-            );
+            let batch_size = batch_size.unwrap_or_default();
             info!("batch size: {}", batch_size);
             let scan_options = commands::scan::ScanOptions {
                 block_start,
@@ -103,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Rescan {
             file_path,
             db_engine,
+            batch_size,
         }) => {
             let db_engine = db_engine.unwrap_or(DbEngine::Postgres(PostgresConfig::from_env()));
             let db = Db::new(db_engine).await;
@@ -111,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
             let tx_events = commands::rescan::parse_csv(&file_path).await?;
 
             // run the rescan command with chunked concurrency
-            for chunk in tx_events.chunks(10) {
+            for chunk in tx_events.chunks(batch_size.unwrap_or_default()) {
                 commands::rescan::run(chunk, &ws_client, &mevshare, &db.connect).await?;
             }
         }

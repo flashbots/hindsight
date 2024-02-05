@@ -100,7 +100,7 @@ async fn write_logfile(event_hash: H256) -> Result<()> {
 /// **Warning**: _This function will process every given event at the same time.
 /// If you have a large number of events (>50), it's very easy to overload your
 /// RPC endpoint. The CLI invocation of this will batch the events into
-/// groups of 10, but if you call this directly, you may have to implement
+/// manageable chunks, but if you call this directly, you may have to implement
 /// your own batching logic._
 pub async fn run(
     tx_events: &[TxEvent],

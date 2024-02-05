@@ -36,8 +36,8 @@ pub enum Commands {
         /// Scan until this timestamp.
         #[arg(long)]
         timestamp_end: Option<u32>,
-        /// Number of transactions to simulate concurrently. Defaults to 1/2 the CPU cores on host.
-        #[arg(short = 'n', long)]
+        /// Number of transactions to simulate concurrently.
+        #[arg(short = 'n', long, default_value = "10")]
         batch_size: Option<usize>,
         /// DB Engine to use to store arb data. Defaults to "mongo".
         #[arg(
@@ -59,6 +59,9 @@ pub enum Commands {
         /// DB Engine to use to store arb data. Defaults to "postgres".
         #[arg(short, long)]
         db_engine: Option<DbEngine>,
+        /// Number of transactions to simulate concurrently.
+        #[arg(short = 'n', long, default_value = "5")]
+        batch_size: Option<usize>,
     },
     /// Export arbs from DB to a JSON file or another DB.
     Export {
